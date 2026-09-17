@@ -21,6 +21,9 @@ from src.separation.separator import prepare_separation, separate
 from src.restoration.exceptions import RestorationError
 from src.restoration.models import RestorationStrength
 from src.restoration.processor import restore_project, write_restoration_plan
+from src.mixing.exceptions import MixingError
+from src.mixing.mixer import mix_project
+from src.mixing.models import MixSource
 
 
 @dataclass(frozen=True)
@@ -219,6 +222,29 @@ def run_restore_command(path: Path, *, strength: str, force: bool = False) -> in
     return 0
 
 
+def run_mix_command(path: Path, *, source: str = MixSource.AUTO.value,
+                    force: bool = False) -> int:
+    """Create a bounded reference-aware mix from restored or separated stems."""
+    print("MusicReviver Mixing / Recombination\n")
+    try:
+        result = mix_project(path, source=MixSource(source), force=force)
+    except (MediaImportError, MixingError) as exc:
+        print(f"Mixing failed: {exc}", file=sys.stderr)
+        return 1
+    print(f"Input: {path}")
+    print(f"Stem source: {result.plan.stem_source.value}")
+    print("Stem gains:")
+    for setting in result.plan.settings:
+        print(f"- {setting.stem}: {setting.gain_db:+.2f} dB")
+    print(f"Reference fitting: {'PASS' if result.plan.reference_fitting_succeeded else 'UNITY FALLBACK'}")
+    print(f"Safety attenuation: {result.safety_gain_db:.2f} dB")
+    print(f"Processing duration: {result.processing_duration:.2f} seconds")
+    print(f"\nOutput:\n{result.audio_path}")
+    print(f"Reports:\n{result.metadata_path}\n{result.text_path}")
+    print("\nMixing: PASS")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Dispatch CLI commands while retaining the default environment check."""
     parser = argparse.ArgumentParser(description="MusicReviver local audio restoration tools")
@@ -257,6 +283,13 @@ def main(argv: list[str] | None = None) -> int:
             default=RestorationStrength.BALANCED.value,
         )
         restoration_parser.add_argument("--force", action="store_true", help="replace existing output")
+    mix_parser = subparsers.add_parser("mix", help="recombine existing stems without mastering")
+    mix_parser.add_argument("path", type=Path, help="original project media path")
+    mix_parser.add_argument(
+        "--source", choices=[item.value for item in MixSource], default=MixSource.AUTO.value,
+        help="stem source selection (default: auto prefers restored)",
+    )
+    mix_parser.add_argument("--force", action="store_true", help="replace existing mix output")
     args = parser.parse_args(argv)
     if args.command == "import":
         return run_import_command(args.path, force=args.force)
@@ -272,6 +305,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_plan_restoration_command(args.path, strength=args.strength, force=args.force)
     if args.command == "restore":
         return run_restore_command(args.path, strength=args.strength, force=args.force)
+    if args.command == "mix":
+        return run_mix_command(args.path, source=args.source, force=args.force)
     return run_environment_command()
 
 
