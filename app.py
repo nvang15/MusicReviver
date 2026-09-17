@@ -1,4 +1,4 @@
-"""MusicReviver environment validation and media-import CLI."""
+"""MusicReviver environment, media-import, and separation CLI."""
 
 from __future__ import annotations
 
@@ -9,8 +9,13 @@ from pathlib import Path
 from typing import Callable
 
 from src.config import PROJECT_DIRECTORIES
-from src.audio.converter import convert_media, is_ffmpeg_available, is_ffprobe_available
+from src.audio.converter import convert_media, is_ffmpeg_available, is_ffprobe_available, safe_project_name
 from src.audio.metadata import MediaImportError, probe_media
+from src.separation.backends import DeviceMode
+from src.separation.diagnostics import collect_diagnostics, format_diagnostics
+from src.separation.exceptions import SeparationError
+from src.separation.models import DEFAULT_MODEL_ID
+from src.separation.separator import prepare_separation, separate
 
 
 @dataclass(frozen=True)
@@ -102,6 +107,43 @@ def run_import_command(path: Path, *, force: bool = False) -> int:
     return 0
 
 
+def run_separation_info_command() -> int:
+    """Print optional backend, provider, model, and hardware diagnostics."""
+    print(format_diagnostics(collect_diagnostics()))
+    return 0
+
+
+def run_separate_command(
+    path: Path,
+    *,
+    device: str = DeviceMode.AUTO.value,
+    model: str = DEFAULT_MODEL_ID,
+    force: bool = False,
+) -> int:
+    """Standardize media and run real AI stem separation."""
+    print("MusicReviver Stem Separation\n")
+    try:
+        request = prepare_separation(path, model_id=model, device=device, force=force)
+        print(f"File: {request.input_path.name}")
+        print(f"Model: {request.model.identifier}")
+        print(f"Standardized source: output/{safe_project_name(request.input_path)}/source/original_48k.wav")
+        print("Backend: audio-separator")
+        print(f"Requested device: {request.requested_device.value}")
+        print(f"Selected device: {request.selected_device.value}")
+        print(f"Reason: {request.selection_reason}")
+        print("\nLoading model and separating (the model may download on first use)...")
+        result = separate(request)
+    except (MediaImportError, SeparationError) as exc:
+        print(f"Separation unavailable: {exc}", file=sys.stderr)
+        return 1
+    print(f"\nProcessing duration: {result.processing_duration:.2f} seconds")
+    print("Generated:")
+    for stem_path in result.stems.values():
+        print(f"- {stem_path.name}")
+    print("\nSeparation: PASS")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Dispatch CLI commands while retaining the default environment check."""
     parser = argparse.ArgumentParser(description="MusicReviver local audio restoration tools")
@@ -109,9 +151,30 @@ def main(argv: list[str] | None = None) -> int:
     import_parser = subparsers.add_parser("import", help="import and standardize a media file")
     import_parser.add_argument("path", type=Path, help="audio or video file to import")
     import_parser.add_argument("--force", action="store_true", help="overwrite existing output")
+    subparsers.add_parser("separation-info", help="show separation backend diagnostics")
+    separate_parser = subparsers.add_parser(
+        "separate", help="run AI stem separation"
+    )
+    separate_parser.add_argument("path", type=Path, help="media file to separate")
+    separate_parser.add_argument(
+        "--device", choices=[mode.value for mode in DeviceMode], default=DeviceMode.AUTO.value,
+        help="model-aware execution device selection",
+    )
+    separate_parser.add_argument(
+        "--model", default=DEFAULT_MODEL_ID, help="registered model filename"
+    )
+    separate_parser.add_argument(
+        "--force", action="store_true", help="replace existing stem output"
+    )
     args = parser.parse_args(argv)
     if args.command == "import":
         return run_import_command(args.path, force=args.force)
+    if args.command == "separation-info":
+        return run_separation_info_command()
+    if args.command == "separate":
+        return run_separate_command(
+            args.path, device=args.device, model=args.model, force=args.force
+        )
     return run_environment_command()
 
 

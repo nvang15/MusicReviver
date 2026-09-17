@@ -2,7 +2,7 @@
 
 MusicReviver is a local, AI-assisted music restoration and reconstruction application intended to improve the perceived recording quality of older audio while respecting the musicians' original performances.
 
-> **Status:** Milestone 2 media ingestion is complete. MusicReviver can validate common audio and video sources and create a standardized internal WAV; enhancement and AI separation are not yet implemented.
+> **Status:** Milestones 1–3 are complete. MusicReviver provides validated media import and real, local AI stem separation through `audio-separator`.
 
 ## Goals
 
@@ -50,7 +50,7 @@ MusicReviver is designed around local processing. User recordings should remain 
 
 - **Milestone 1 — Foundation (complete):** repository structure, configuration, environment checks, logging utilities, extensible stem model, and tests.
 - **Milestone 2 — Media ingestion (complete):** validated imports, FFmpeg conversion, output verification, and metadata inspection.
-- **Milestone 3 — Stem separation:** local model integration with model-independent stem handling.
+- **Milestone 3 — Stem separation (complete):** real local inference, model-aware CPU/DirectML selection, diagnostics, staged output validation, and model-independent stem handling.
 - **Milestone 4 — Analysis and restoration:** per-stem diagnostics and conservative restoration tools.
 - **Milestone 5 — Mixing and mastering:** user controls, remixing, mastering, and comparison.
 - **Later — Experimental reconstruction:** opt-in, instrument-specific reconstruction workflows.
@@ -111,6 +111,64 @@ An import creates `output/<safe-project-name>/source/original_48k.wav` and
 `metadata.json`. Existing converted audio is protected unless `--force` is supplied.
 Running `python app.py` with no command still performs the Milestone 1 environment
 check.
+
+## Milestone 3 AI stem separation
+
+MusicReviver performs local AI separation through a backend-neutral interface backed
+initially by `audio-separator` 0.47.0. Input media is automatically standardized by
+the Milestone 2 pipeline before inference. Models are downloaded on first use into
+the local `models/` cache and remain excluded from Git.
+
+The default `htdemucs_6s.yaml` model runs on CPU and produces:
+
+- Vocals
+- Drums
+- Bass
+- Guitar
+- Piano / keys
+- Other
+
+Piano/keys separation quality can vary significantly and is considered experimental.
+The internal stem and model representations also accept arbitrary future stem sets,
+including organ, synth, electric piano, strings, brass, and percussion.
+
+The specialized `UVR-MDX-NET-Inst_HQ_5.onnx` model produces vocals and instrumental
+stems and supports both CPU and optional DirectML execution. DirectML was successfully
+tested during development on an AMD RX 9070 XT; this does not guarantee compatibility
+with every AMD GPU or Windows configuration.
+
+Device selection supports `auto`, `directml`, and `cpu` and is model-aware:
+
+- `htdemucs_6s.yaml` supports CPU; automatic mode will not select DirectML.
+- `UVR-MDX-NET-Inst_HQ_5.onnx` supports CPU and DirectML; automatic mode prefers
+  DirectML only when ONNX Runtime exposes `DmlExecutionProvider`.
+- An incompatible explicit device request fails instead of silently falling back.
+
+CPU remains available without DirectML. DirectML requires a compatible Windows setup
+and optional DirectML packages. The architecture permits a future WinML mode without
+redesigning models or callers.
+
+Inspect installed packages, providers, cached models, and compatibility:
+
+```powershell
+python app.py separation-info
+```
+
+Run six-stem CPU separation or specialized MDX separation:
+
+```powershell
+python app.py separate "input/song.mp3"
+python app.py separate "input/song.mp3" --model htdemucs_6s.yaml --device cpu
+python app.py separate "input/song.mp3" --model UVR-MDX-NET-Inst_HQ_5.onnx --device auto
+python app.py separate "input/song.mp3" --model UVR-MDX-NET-Inst_HQ_5.onnx --device directml
+```
+
+Canonical WAV stems and `separation.json` are written beneath
+`output/<project>/stems/`. Existing results are protected unless `--force` is used.
+Forced replacement is staged and removes stale stems when switching models.
+Separator models may operate or initially export at their native sample rate, such as
+44.1 kHz. MusicReviver converts every final canonical stem to 48 kHz, stereo, 24-bit
+little-endian PCM WAV for consistent downstream processing.
 
 ## Reconstruction disclaimer
 
