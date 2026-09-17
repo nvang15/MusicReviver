@@ -1,0 +1,1 @@
+"""MusicReviver application package."""

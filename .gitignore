@@ -1,0 +1,50 @@
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Build and packaging output
+build/
+dist/
+*.egg-info/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Runtime data (retain directory placeholders)
+input/*
+!input/.gitkeep
+output/*
+!output/.gitkeep
+models/*
+!models/.gitkeep
+temp/*
+!temp/.gitkeep
+
+# Audio and video media
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.aac
+*.ogg
+*.mp4
+*.mkv
+*.mov
+*.webm
