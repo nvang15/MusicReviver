@@ -4,7 +4,7 @@
 
 MusicReviver is a local, AI-assisted music restoration and reconstruction application intended to improve the perceived recording quality of older audio while respecting the musicians' original performances.
 
-> **Status:** Milestones 1–5 are complete. MusicReviver provides validated media import, local AI stem separation, objective audio analysis, and conservative analysis-driven stem restoration.
+> **Status:** Milestones 1–6 are complete. MusicReviver provides validated media import, local AI stem separation, objective analysis, conservative restoration, and reference-aware stem recombination.
 
 ## Goals
 
@@ -55,7 +55,8 @@ MusicReviver is designed around local processing. User recordings should remain 
 - **Milestone 3 — Stem separation (complete):** real local inference, model-aware CPU/DirectML selection, diagnostics, staged output validation, and model-independent stem handling.
 - **Milestone 4 — Audio analysis (complete):** objective full-mix and per-stem measurements for future restoration decisions.
 - **Milestone 5 — Restoration (complete):** conservative, measurement-guided planning and stem processing.
-- **Milestone 6 — Mixing and mastering:** user controls, remixing, mastering, and comparison.
+- **Milestone 6 — Mixing / recombination (complete):** bounded reference-aware stem gains, safe floating-point summing, and objective comparison.
+- **Milestone 7 — Mastering:** optional final delivery processing and comparison.
 - **Later — Experimental reconstruction:** opt-in, instrument-specific reconstruction workflows.
 
 ## Requirements
@@ -276,6 +277,35 @@ remixing, generative reconstruction, re-synthesis, or instrument replacement.
 Restored stems remain 48 kHz, stereo, 24-bit PCM WAV files under
 `output/<project>/restored/`. Publication is staged so a failed stem cannot leave a
 partial set, and `--force` safely replaces old results and removes stale files.
+
+## Milestone 6 mixing / recombination
+
+MusicReviver can recombine arbitrary canonical stems into a coherent stereo mix while
+preserving their timing, channel relationships, and phase. In automatic mode it
+prefers a valid restored set and otherwise uses separated stems. It never starts AI
+separation merely because mixing was requested.
+
+```powershell
+python app.py mix "input/song.mp3"
+python app.py mix "input/song.mp3" --source restored
+python app.py mix "input/song.mp3" --source separated --force
+```
+
+The original standardized mix is used only as an objective reference. MusicReviver
+solves a bounded least-squares problem that estimates one gain per stem while limiting
+every automatic adjustment to ±3 dB. If fitting is unavailable or unsafe, unity gain
+is the deterministic fallback. Stems are never individually normalized.
+
+After floating-point summing, global attenuation is applied only when necessary to
+keep the result below -0.5 dBFS. This safety gain can only reduce level; it is not a
+limiter, loudness target, or mastering operation. Reports include reference, premix,
+and final LUFS, RMS, peak, waveform correlation, and normalized error as descriptive
+diagnostics rather than subjective quality claims.
+
+Final output remains 48 kHz, stereo, 24-bit PCM WAV under `output/<project>/mix/`.
+The engine does not time-shift, resample, invert polarity, widen stereo, add effects,
+or perform mastering. A future PySide6 desktop interface can call the same structured
+Python API as part of a simple Restore / Modernize workflow.
 
 ## Reconstruction disclaimer
 
