@@ -1,4 +1,4 @@
-"""MusicReviver environment, media-import, and separation CLI."""
+"""MusicReviver environment, import, separation, and analysis CLI."""
 
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ from typing import Callable
 from src.config import PROJECT_DIRECTORIES
 from src.audio.converter import convert_media, is_ffmpeg_available, is_ffprobe_available, safe_project_name
 from src.audio.metadata import MediaImportError, probe_media
+from src.analysis.exceptions import AnalysisError
+from src.analysis.report import analyze_project
 from src.separation.backends import DeviceMode
 from src.separation.diagnostics import collect_diagnostics, format_diagnostics
 from src.separation.exceptions import SeparationError
@@ -144,6 +146,34 @@ def run_separate_command(
     return 0
 
 
+def _metric_display(value: object, suffix: str = "", digits: int = 1) -> str:
+    return "unavailable" if value is None else f"{float(value):.{digits}f}{suffix}"
+
+
+def run_analyze_command(path: Path, *, force: bool = False) -> int:
+    """Import as needed and analyze the full mix plus existing canonical stems."""
+    print("MusicReviver Audio Analysis\n")
+    print(f"Input: {path}")
+    print(f"Source: output/{safe_project_name(path)}/source/original_48k.wav")
+    print("\nAnalyzing source and any existing stems...")
+    try:
+        document, json_path, text_path = analyze_project(path, force=force)
+    except (MediaImportError, AnalysisError) as exc:
+        print(f"Analysis failed: {exc}", file=sys.stderr)
+        return 1
+    source = document["source"]
+    print(f"\nIntegrated loudness: {_metric_display(source['integrated_lufs'], ' LUFS')}")
+    print(f"Peak: {_metric_display(source['peak_dbfs'], ' dBFS')}")
+    print(f"Dynamic range estimate: {_metric_display(source['dynamic_range_estimate_db'], ' dB')}")
+    print(f"Tempo estimate: {_metric_display(source['tempo_bpm'], ' BPM', 0)}")
+    key = source["key_estimate"]
+    key_text = "unavailable" if key is None else f"{key['tonic']} {key['mode']} (confidence {key['confidence']:.2f})"
+    print(f"Key estimate: {key_text}")
+    print(f"\nReport:\n{json_path}\n{text_path}")
+    print("\nAnalysis: PASS")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Dispatch CLI commands while retaining the default environment check."""
     parser = argparse.ArgumentParser(description="MusicReviver local audio restoration tools")
@@ -166,6 +196,11 @@ def main(argv: list[str] | None = None) -> int:
     separate_parser.add_argument(
         "--force", action="store_true", help="replace existing stem output"
     )
+    analyze_parser = subparsers.add_parser(
+        "analyze", help="measure a source and any existing canonical stems"
+    )
+    analyze_parser.add_argument("path", type=Path, help="audio or video file to analyze")
+    analyze_parser.add_argument("--force", action="store_true", help="replace existing reports")
     args = parser.parse_args(argv)
     if args.command == "import":
         return run_import_command(args.path, force=args.force)
@@ -175,6 +210,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_separate_command(
             args.path, device=args.device, model=args.model, force=args.force
         )
+    if args.command == "analyze":
+        return run_analyze_command(args.path, force=args.force)
     return run_environment_command()
 
 

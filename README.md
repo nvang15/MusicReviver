@@ -4,7 +4,7 @@
 
 MusicReviver is a local, AI-assisted music restoration and reconstruction application intended to improve the perceived recording quality of older audio while respecting the musicians' original performances.
 
-> **Status:** Milestones 1–3 are complete. MusicReviver provides validated media import and real, local AI stem separation through `audio-separator`.
+> **Status:** Milestones 1–4 are complete. MusicReviver provides validated media import, local AI stem separation, and objective audio analysis. It does not yet alter or restore recordings.
 
 ## Goals
 
@@ -53,7 +53,8 @@ MusicReviver is designed around local processing. User recordings should remain 
 - **Milestone 1 — Foundation (complete):** repository structure, configuration, environment checks, logging utilities, extensible stem model, and tests.
 - **Milestone 2 — Media ingestion (complete):** validated imports, FFmpeg conversion, output verification, and metadata inspection.
 - **Milestone 3 — Stem separation (complete):** real local inference, model-aware CPU/DirectML selection, diagnostics, staged output validation, and model-independent stem handling.
-- **Milestone 4 — Analysis and restoration:** per-stem diagnostics and conservative restoration tools.
+- **Milestone 4 — Audio analysis (complete):** objective full-mix and per-stem measurements for future restoration decisions.
+- **Milestone 5 — Restoration:** conservative, measurement-guided restoration tools.
 - **Milestone 5 — Mixing and mastering:** user controls, remixing, mastering, and comparison.
 - **Later — Experimental reconstruction:** opt-in, instrument-specific reconstruction workflows.
 
@@ -178,6 +179,51 @@ Forced replacement is staged and removes stale stems when switching models.
 Separator models may operate or initially export at their native sample rate, such as
 44.1 kHz. MusicReviver converts every final canonical stem to 48 kHz, stereo, 24-bit
 little-endian PCM WAV for consistent downstream processing.
+
+## Milestone 4 audio analysis
+
+MusicReviver can measure a standardized source and every existing canonical WAV stem
+without changing their samples. Analysis does not trigger stem separation. Run:
+
+```powershell
+python app.py analyze "input/song.mp3"
+python app.py analyze "input/song.mp3" --force
+```
+
+Reports are written to `output/<project>/analysis/analysis.json` and `analysis.txt`.
+Existing reports are protected unless `--force` is provided, and replacement is
+staged so a failed analysis does not corrupt a valid report.
+
+### Measurements
+
+- **Peak dBFS:** the largest absolute sample level relative to digital full scale.
+- **RMS / RMS dBFS:** average signal energy across all samples and channels.
+- **Integrated LUFS:** BS.1770-style program loudness when duration and signal permit.
+- **Crest factor:** peak dBFS minus RMS dBFS.
+- **Dynamic range estimate:** the difference between the 95th and 10th percentile
+  levels of 50 ms RMS frames above -60 dBFS. This is transparent approximation, not
+  an official “DR score.”
+- **Spectral centroid, bandwidth, and rolloff:** power-weighted summaries of frequency
+  content.
+- **Frequency-band distribution:** normalized FFT power fractions for sub, bass,
+  low-mid, mid, upper-mid, high, and air bands.
+- **Clipping detection:** samples within 0.1 dB of digital full scale.
+- **DC offset:** mean normalized sample value.
+- **Stereo correlation and balance:** left/right correlation and RMS level difference
+  when two usable channels are present.
+
+### Estimates
+
+- **Estimated noise floor:** the 10th-percentile level of active 50 ms frames. Music
+  may be present in those frames, so this is not an isolated electrical-noise reading.
+- **Tempo estimate:** full-mix-only onset and beat tracking result.
+- **Key estimate:** experimental full-mix chroma correlation against major/minor key
+  profiles, accompanied by a confidence value and uncertainty warnings.
+
+Unavailable or unreliable measurements are stored as JSON `null` with warnings rather
+than NaN or Infinity. These results are descriptive only: MusicReviver does not yet
+use them to EQ, compress, normalize, restore, remix, reconstruct, or master audio.
+Later restoration work will consume the structured analysis data.
 
 ## Reconstruction disclaimer
 
