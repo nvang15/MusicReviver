@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Display Python version
+        run: python --version
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Verify FFmpeg and FFprobe
+        shell: bash
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --yes ffmpeg
+          fi
+          ffmpeg -version
+          ffprobe -version
+
+      - name: Check runtime directories for tracked artifacts
+        shell: bash
+        run: |
+          unexpected="$(git ls-files -- input output models temp | grep -Ev '^(input|output|models|temp)/\.gitkeep$' || true)"
+          if [[ -n "$unexpected" ]]; then
+            echo "Unexpected tracked runtime or generated files:"
+            echo "$unexpected"
+            exit 1
+          fi
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Compile Python sources
+        run: python -m compileall -q app.py src tests
+
+      - name: Run environment check
+        run: python app.py
