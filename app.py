@@ -27,6 +27,10 @@ from src.mixing.models import MixSource
 from src.mastering.exceptions import MasteringError
 from src.mastering.models import MasteringMode
 from src.mastering.processor import master_project
+from src.pipeline.exceptions import PipelineCancelled, PipelineError
+from src.pipeline.models import PipelineConfig, PipelineStatus
+from src.pipeline.orchestrator import modernize
+from src.pipeline.progress import PipelineProgress
 
 
 @dataclass(frozen=True)
@@ -270,6 +274,40 @@ def run_master_command(path: Path, *, mode: str = MasteringMode.BALANCED.value,
     return 0
 
 
+def run_modernize_command(path: Path, *, model: str = DEFAULT_MODEL_ID,
+                          device: str = DeviceMode.AUTO.value,
+                          restoration: str = RestorationStrength.BALANCED.value,
+                          mastering: str = MasteringMode.BALANCED.value,
+                          force: bool = False) -> int:
+    """Run the resumable end-to-end pipeline through existing stage APIs."""
+    print("MusicReviver End-to-End Pipeline\n")
+
+    def show_progress(event: PipelineProgress) -> None:
+        if event.status in {PipelineStatus.RUNNING, PipelineStatus.REUSED,
+                            PipelineStatus.COMPLETED, PipelineStatus.FAILED}:
+            print(f"[{event.stage.value}] {event.status.value.upper()}: {event.message}")
+
+    config = PipelineConfig(
+        separation_model=model, device_mode=DeviceMode(device),
+        restoration_strength=RestorationStrength(restoration),
+        mastering_mode=MasteringMode(mastering), force=force,
+    )
+    try:
+        result = modernize(path, config=config, progress_callback=show_progress)
+    except (PipelineError, PipelineCancelled) as exc:
+        print(f"\nModernize failed: {exc}", file=sys.stderr)
+        if exc.result is not None:
+            print(f"Pipeline report: {exc.result.pipeline_text}", file=sys.stderr)
+        return 1
+    print(f"\nProject: {result.project_name}")
+    print("Reused stages: " + (", ".join(stage.value for stage in result.reused_stages) or "none"))
+    print(f"Total duration: {result.total_duration:.2f} seconds")
+    print(f"Final master:\n{result.mastered_output}")
+    print(f"Reports:\n{result.pipeline_json}\n{result.pipeline_text}")
+    print("\nModernize: PASS")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Dispatch CLI commands while retaining the default environment check."""
     parser = argparse.ArgumentParser(description="MusicReviver local audio restoration tools")
@@ -320,6 +358,16 @@ def main(argv: list[str] | None = None) -> int:
     master_parser.add_argument("--mode", choices=[item.value for item in MasteringMode],
                                default=MasteringMode.BALANCED.value)
     master_parser.add_argument("--force", action="store_true", help="replace existing master output")
+    modernize_parser = subparsers.add_parser("modernize", help="run or resume the complete pipeline")
+    modernize_parser.add_argument("path", type=Path, help="audio or video file to modernize")
+    modernize_parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="registered separation model")
+    modernize_parser.add_argument("--device", choices=[mode.value for mode in DeviceMode],
+                                  default=DeviceMode.AUTO.value)
+    modernize_parser.add_argument("--restoration", choices=[item.value for item in RestorationStrength],
+                                  default=RestorationStrength.BALANCED.value)
+    modernize_parser.add_argument("--mastering", choices=[item.value for item in MasteringMode],
+                                  default=MasteringMode.BALANCED.value)
+    modernize_parser.add_argument("--force", action="store_true", help="rerun every stage safely")
     args = parser.parse_args(argv)
     if args.command == "import":
         return run_import_command(args.path, force=args.force)
@@ -339,6 +387,10 @@ def main(argv: list[str] | None = None) -> int:
         return run_mix_command(args.path, source=args.source, force=args.force)
     if args.command == "master":
         return run_master_command(args.path, mode=args.mode, force=args.force)
+    if args.command == "modernize":
+        return run_modernize_command(args.path, model=args.model, device=args.device,
+                                     restoration=args.restoration, mastering=args.mastering,
+                                     force=args.force)
     return run_environment_command()
 
 
