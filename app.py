@@ -1,14 +1,16 @@
-"""MusicReviver Milestone 1 environment validation entry point."""
+"""MusicReviver environment validation and media-import CLI."""
 
 from __future__ import annotations
 
+import argparse
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 from src.config import PROJECT_DIRECTORIES
-from src.audio.converter import is_ffmpeg_available, is_ffprobe_available
+from src.audio.converter import convert_media, is_ffmpeg_available, is_ffprobe_available
+from src.audio.metadata import MediaImportError, probe_media
 
 
 @dataclass(frozen=True)
@@ -53,7 +55,7 @@ def run_environment_checks() -> tuple[CheckResult, ...]:
     )
 
 
-def main() -> int:
+def run_environment_command() -> int:
     """Print a concise environment report and return a process status code."""
     results = run_environment_checks()
     print("MusicReviver Environment Check\n")
@@ -69,6 +71,48 @@ def main() -> int:
 
     print("\nEnvironment is ready for MusicReviver Milestone 1.")
     return 0
+
+
+def _duration_display(seconds: float | None) -> str:
+    if seconds is None:
+        return "unknown"
+    total = round(seconds)
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours:d}:{minutes:02d}:{secs:02d}" if hours else f"{minutes:02d}:{secs:02d}"
+
+
+def run_import_command(path: Path, *, force: bool = False) -> int:
+    """Show source metadata and import one media file."""
+    print("MusicReviver Media Import\n")
+    try:
+        metadata = probe_media(path)
+        print(f"File: {metadata.filename}")
+        print(f"Duration: {_duration_display(metadata.duration_seconds)}")
+        print(f"Codec: {metadata.audio_codec or 'unknown'}")
+        print(f"Sample Rate: {metadata.sample_rate or 'unknown'} Hz")
+        print(f"Channels: {metadata.channels or 'unknown'}")
+        print("\nConverting to MusicReviver internal format...")
+        result = convert_media(path, force=force)
+    except MediaImportError as exc:
+        print(f"\nImport failed: {exc}", file=sys.stderr)
+        return 1
+    print(f"\nOutput:\n{result.audio_path}")
+    print("\nConversion: PASS")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Dispatch CLI commands while retaining the default environment check."""
+    parser = argparse.ArgumentParser(description="MusicReviver local audio restoration tools")
+    subparsers = parser.add_subparsers(dest="command")
+    import_parser = subparsers.add_parser("import", help="import and standardize a media file")
+    import_parser.add_argument("path", type=Path, help="audio or video file to import")
+    import_parser.add_argument("--force", action="store_true", help="overwrite existing output")
+    args = parser.parse_args(argv)
+    if args.command == "import":
+        return run_import_command(args.path, force=args.force)
+    return run_environment_command()
 
 
 if __name__ == "__main__":

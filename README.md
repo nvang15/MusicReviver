@@ -2,7 +2,7 @@
 
 MusicReviver is a local, AI-assisted music restoration and reconstruction application intended to improve the perceived recording quality of older audio while respecting the musicians' original performances.
 
-> **Status:** Early development. Milestone 1 provides only the project foundation and environment validation; audio processing and AI separation are not yet implemented.
+> **Status:** Milestone 2 media ingestion is complete. MusicReviver can validate common audio and video sources and create a standardized internal WAV; enhancement and AI separation are not yet implemented.
 
 ## Goals
 
@@ -48,8 +48,8 @@ MusicReviver is designed around local processing. User recordings should remain 
 
 ## Roadmap
 
-- **Milestone 1 — Foundation:** repository structure, configuration, environment checks, logging utilities, extensible stem model, and tests.
-- **Milestone 2 — Media ingestion:** validated imports, FFmpeg conversion, and metadata inspection.
+- **Milestone 1 — Foundation (complete):** repository structure, configuration, environment checks, logging utilities, extensible stem model, and tests.
+- **Milestone 2 — Media ingestion (complete):** validated imports, FFmpeg conversion, output verification, and metadata inspection.
 - **Milestone 3 — Stem separation:** local model integration with model-independent stem handling.
 - **Milestone 4 — Analysis and restoration:** per-stem diagnostics and conservative restoration tools.
 - **Milestone 5 — Mixing and mastering:** user controls, remixing, mastering, and comparison.
@@ -59,9 +59,9 @@ MusicReviver is designed around local processing. User recordings should remain 
 
 - Python 3.11
 - FFmpeg and FFprobe available on `PATH`
-- `pip` for installing the Milestone 1 test dependency
+- `pip` for installing the test dependency
 
-Milestone 1 has no third-party runtime Python dependencies. `pytest` is used for development testing.
+MusicReviver has no third-party runtime Python dependencies. `pytest` is used for development testing.
 
 ## Development setup
 
@@ -88,6 +88,29 @@ The current application performs startup checks for:
 - Required local project directories
 
 It reports expected missing dependencies as readable failures rather than uncaught tracebacks. The repository also includes reusable logging setup, safe directory helpers, an extensible `StemType`, and unit tests that require no audio files.
+
+## Milestone 2 media import
+
+Supported audio formats are WAV, MP3, FLAC, M4A, AAC, and OGG. Supported video
+containers are MP4, MKV, MOV, and WebM. Video input must contain an audio stream.
+
+Every accepted source is converted without aesthetic processing to MusicReviver's
+internal format: a 48 kHz, stereo, 24-bit little-endian PCM WAV. The source file is
+never modified. Conversion does **not** enhance, restore, normalize, separate, EQ,
+compress, or master the audio.
+
+Import media from the repository root:
+
+```powershell
+python app.py import "input/song.mp3"
+python app.py import "input/live performance.mp4"
+python app.py import "input/song.mp3" --force
+```
+
+An import creates `output/<safe-project-name>/source/original_48k.wav` and
+`metadata.json`. Existing converted audio is protected unless `--force` is supplied.
+Running `python app.py` with no command still performs the Milestone 1 environment
+check.
 
 ## Reconstruction disclaimer
 
