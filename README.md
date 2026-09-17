@@ -4,7 +4,7 @@
 
 MusicReviver is a local, AI-assisted music restoration and reconstruction application intended to improve the perceived recording quality of older audio while respecting the musicians' original performances.
 
-> **Status:** Milestones 1–8 are complete. MusicReviver provides a resumable end-to-end workflow over its validated import, separation, analysis, restoration, mixing, and mastering engines.
+> **Status:** Milestones 1–9 are complete. MusicReviver provides a resumable end-to-end backend workflow and a native PySide6 desktop interface.
 
 ## Goals
 
@@ -58,7 +58,7 @@ MusicReviver is designed around local processing. User recordings should remain 
 - **Milestone 6 — Mixing / recombination (complete):** bounded reference-aware stem gains, safe floating-point summing, and objective comparison.
 - **Milestone 7 — Mastering (complete):** bounded, measurement-guided stereo mastering with archival, balanced, and modern modes.
 - **Milestone 8 — End-to-end pipeline orchestration (complete):** resumable, configuration-aware coordination of every backend stage.
-- **Milestone 9 — PySide6 desktop GUI.**
+- **Milestone 9 — PySide6 desktop GUI (complete):** native task selection, background processing, progress, cancellation, results, and safe export.
 - **Milestone 10 — Packaging / Windows executable.**
 - **Milestone 11 — Advanced reconstruction / instrument re-synthesis:** explicit, opt-in experimental workflows.
 
@@ -391,9 +391,47 @@ restored stems, mix, and finished master under `output/<project>/master/`. Stem 
 are discovered dynamically, so six-stem, two-stem, and future model layouts follow
 the same workflow.
 
-The future PySide6 application will call the same `src.pipeline.modernize` Python API.
+The PySide6 application calls the same `src.pipeline.modernize` Python API.
 Progress is delivered as typed events rather than console text, and no GUI dependency
 or global mutable pipeline state is present in the core orchestrator.
+
+## Milestone 9 — Desktop GUI
+
+Install the declared dependencies and launch the native application:
+
+```powershell
+python -m pip install -r requirements.txt
+python gui.py
+```
+
+Choose or drag in a supported audio/video file, select a task, configure the visible
+options, and choose **Start Processing**. The primary tasks are Separate Instruments,
+Analyze Recording, Restore Stems, and Modernize Recording. Modernize is the default
+and runs the complete Milestone 8 pipeline. Mixing and mastering remain backend stages
+of that approachable workflow rather than requiring separate primary-task controls.
+
+Model and device selectors use the existing separation registry and compatibility
+metadata. Restoration offers Light, Balanced, and Strong. Mastering offers Archival,
+Balanced, and Modern with preservation-focused descriptions. Restore Stems does not
+silently run separation; missing stems produce a message directing the user to Separate
+Instruments or Modernize Recording.
+
+Processing runs on a Qt worker thread so the interface remains responsive. Typed
+pipeline progress events are bridged to the UI with Qt signals. Indeterminate progress
+is displayed when a backend does not expose a real percentage. Cancellation is checked
+between stages, and the interface explicitly states that the active stage must finish
+first.
+
+Results list arbitrary generated stem names and relevant report/output paths. **Open
+Output Folder** uses the platform-native folder opener. **Export Result…** copies the
+final master for Modernize, or the generated task files for separation, analysis, and
+restoration, without moving the internal `output/<project>/` cache. Existing destination
+filenames receive a numbered suffix and are never silently overwritten.
+
+The GUI contains no audio processing algorithms and does not use the CLI parser. It
+calls the same backend and orchestration Python APIs as the command-line interface.
+Audio playback, waveform display, loudness-matched A/B comparison, and packaging are
+deferred to later milestones.
 
 ## Reconstruction disclaimer
 
