@@ -18,6 +18,9 @@ from src.separation.diagnostics import collect_diagnostics, format_diagnostics
 from src.separation.exceptions import SeparationError
 from src.separation.models import DEFAULT_MODEL_ID
 from src.separation.separator import prepare_separation, separate
+from src.restoration.exceptions import RestorationError
+from src.restoration.models import RestorationStrength
+from src.restoration.processor import restore_project, write_restoration_plan
 
 
 @dataclass(frozen=True)
@@ -174,6 +177,48 @@ def run_analyze_command(path: Path, *, force: bool = False) -> int:
     return 0
 
 
+def run_plan_restoration_command(path: Path, *, strength: str, force: bool = False) -> int:
+    """Create analysis-driven plans without altering audio."""
+    print("MusicReviver Restoration Plan\n")
+    try:
+        document, json_path, text_path = write_restoration_plan(
+            path, strength=RestorationStrength(strength), force=force
+        )
+    except (MediaImportError, AnalysisError, RestorationError) as exc:
+        print(f"Planning failed: {exc}", file=sys.stderr)
+        return 1
+    print(f"Input: {path}")
+    print(f"Strength: {strength}")
+    print("Plans:")
+    for name, plan in document["plans"].items():
+        action_names = ", ".join(action["type"] for action in plan["actions"]) or "bypass"
+        print(f"- {name}: {action_names}")
+    print(f"\nReport:\n{json_path}\n{text_path}")
+    print("\nPlanning: PASS")
+    return 0
+
+
+def run_restore_command(path: Path, *, strength: str, force: bool = False) -> int:
+    """Plan and conservatively restore all existing canonical stems."""
+    print("MusicReviver Conservative Restoration\n")
+    try:
+        document, json_path, text_path = restore_project(
+            path, strength=RestorationStrength(strength), force=force
+        )
+    except (MediaImportError, AnalysisError, RestorationError) as exc:
+        print(f"Restoration failed: {exc}", file=sys.stderr)
+        return 1
+    print(f"Input: {path}")
+    print(f"Strength: {strength}")
+    print("Restored:")
+    for name, result in document["results"].items():
+        print(f"- {Path(result['output']).name}: {'bypass' if result['bypass'] else 'processed'}")
+    print(f"\nProcessing duration: {document['processing_duration_seconds']:.2f} seconds")
+    print(f"Report:\n{json_path}\n{text_path}")
+    print("\nRestoration: PASS")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Dispatch CLI commands while retaining the default environment check."""
     parser = argparse.ArgumentParser(description="MusicReviver local audio restoration tools")
@@ -201,6 +246,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     analyze_parser.add_argument("path", type=Path, help="audio or video file to analyze")
     analyze_parser.add_argument("--force", action="store_true", help="replace existing reports")
+    for command, help_text in (
+        ("plan-restoration", "create analysis-driven restoration plans"),
+        ("restore", "conservatively restore existing canonical stems"),
+    ):
+        restoration_parser = subparsers.add_parser(command, help=help_text)
+        restoration_parser.add_argument("path", type=Path, help="original project media path")
+        restoration_parser.add_argument(
+            "--strength", choices=[item.value for item in RestorationStrength],
+            default=RestorationStrength.BALANCED.value,
+        )
+        restoration_parser.add_argument("--force", action="store_true", help="replace existing output")
     args = parser.parse_args(argv)
     if args.command == "import":
         return run_import_command(args.path, force=args.force)
@@ -212,6 +268,10 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.command == "analyze":
         return run_analyze_command(args.path, force=args.force)
+    if args.command == "plan-restoration":
+        return run_plan_restoration_command(args.path, strength=args.strength, force=args.force)
+    if args.command == "restore":
+        return run_restore_command(args.path, strength=args.strength, force=args.force)
     return run_environment_command()
 
 

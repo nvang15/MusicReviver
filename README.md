@@ -4,7 +4,7 @@
 
 MusicReviver is a local, AI-assisted music restoration and reconstruction application intended to improve the perceived recording quality of older audio while respecting the musicians' original performances.
 
-> **Status:** Milestones 1–4 are complete. MusicReviver provides validated media import, local AI stem separation, and objective audio analysis. It does not yet alter or restore recordings.
+> **Status:** Milestones 1–5 are complete. MusicReviver provides validated media import, local AI stem separation, objective audio analysis, and conservative analysis-driven stem restoration.
 
 ## Goals
 
@@ -54,8 +54,8 @@ MusicReviver is designed around local processing. User recordings should remain 
 - **Milestone 2 — Media ingestion (complete):** validated imports, FFmpeg conversion, output verification, and metadata inspection.
 - **Milestone 3 — Stem separation (complete):** real local inference, model-aware CPU/DirectML selection, diagnostics, staged output validation, and model-independent stem handling.
 - **Milestone 4 — Audio analysis (complete):** objective full-mix and per-stem measurements for future restoration decisions.
-- **Milestone 5 — Restoration:** conservative, measurement-guided restoration tools.
-- **Milestone 5 — Mixing and mastering:** user controls, remixing, mastering, and comparison.
+- **Milestone 5 — Restoration (complete):** conservative, measurement-guided planning and stem processing.
+- **Milestone 6 — Mixing and mastering:** user controls, remixing, mastering, and comparison.
 - **Later — Experimental reconstruction:** opt-in, instrument-specific reconstruction workflows.
 
 ## Requirements
@@ -223,7 +223,59 @@ staged so a failed analysis does not corrupt a valid report.
 Unavailable or unreliable measurements are stored as JSON `null` with warnings rather
 than NaN or Infinity. These results are descriptive only: MusicReviver does not yet
 use them to EQ, compress, normalize, restore, remix, reconstruct, or master audio.
-Later restoration work will consume the structured analysis data.
+The restoration engine consumes this structured analysis data for conservative decisions.
+
+## Milestone 5 conservative restoration
+
+Restoration is preservation-first and split into two layers: a planner consumes the
+existing structured analysis, then a DSP processor executes only the explicit actions
+in each plan. MusicReviver may intentionally choose an empty plan and publish an
+unchanged canonical copy for predictable downstream mixing.
+
+Preview decisions without changing audio:
+
+```powershell
+python app.py plan-restoration "input/song.mp3"
+python app.py plan-restoration "input/song.mp3" --strength light --force
+```
+
+Restore existing separated stems:
+
+```powershell
+python app.py restore "input/song.mp3"
+python app.py restore "input/song.mp3" --strength strong --force
+```
+
+Strengths are `light`, `balanced` (default), and `strong`. Strength adjusts documented
+thresholds and bounded processing amounts; even strong mode remains conservative.
+Every automatic action includes a reason tied to measurements in `analysis.json`.
+
+Supported automatic actions are:
+
+- Per-channel DC-offset removal when measured offset exceeds the selected threshold.
+- Stem-aware high-pass filtering only when measured 20–60 Hz energy exceeds the
+  selected threshold. Bass and drums are limited to subsonic cutoff frequencies to
+  preserve fundamentals and kick energy.
+- Gentle compression only when both crest factor and the dynamic-range estimate cross
+  conservative thresholds.
+- Safety peak protection only when planned processing approaches digital full scale;
+  it is not used to increase loudness.
+
+The DSP layer is portable NumPy/SciPy code: stable Butterworth second-order-section
+filters provide high-pass cleanup, a deterministic linked-stereo envelope applies
+gentle compression without makeup gain, and peak safety uses attenuation-only gain
+when the configured ceiling would otherwise be exceeded. Normal-length files use
+zero-phase filtering; very short files use safely initialized causal SOS filtering.
+
+MusicReviver warns about detected clipping but does not claim to repair it. The
+noise-floor value is an estimate that may contain musical material, so restoration
+does not apply a hard gate or neural denoising. Stereo correlation warnings do not
+trigger widening. This milestone provides no de-clipping, neural denoising, mastering,
+remixing, generative reconstruction, re-synthesis, or instrument replacement.
+
+Restored stems remain 48 kHz, stereo, 24-bit PCM WAV files under
+`output/<project>/restored/`. Publication is staged so a failed stem cannot leave a
+partial set, and `--force` safely replaces old results and removes stale files.
 
 ## Reconstruction disclaimer
 
