@@ -24,6 +24,9 @@ from src.restoration.processor import restore_project, write_restoration_plan
 from src.mixing.exceptions import MixingError
 from src.mixing.mixer import mix_project
 from src.mixing.models import MixSource
+from src.mastering.exceptions import MasteringError
+from src.mastering.models import MasteringMode
+from src.mastering.processor import master_project
 
 
 @dataclass(frozen=True)
@@ -245,6 +248,28 @@ def run_mix_command(path: Path, *, source: str = MixSource.AUTO.value,
     return 0
 
 
+def run_master_command(path: Path, *, mode: str = MasteringMode.BALANCED.value,
+                       force: bool = False) -> int:
+    """Master an existing valid Milestone 6 mix without running earlier stages."""
+    print("MusicReviver Conservative Mastering\n")
+    try:
+        result = master_project(path, mode=MasteringMode(mode), force=force)
+    except (MediaImportError, MasteringError) as exc:
+        print(f"Mastering failed: {exc}", file=sys.stderr)
+        return 1
+    print(f"Input: {path}")
+    print(f"Mode: {result.plan.mode.value}")
+    print("Actions: " + (", ".join(action.type for action in result.plan.actions) or "bypass"))
+    print(f"Output loudness: {_metric_display(result.output_metrics['integrated_lufs'], ' LUFS')}")
+    print(f"Sample peak: {_metric_display(result.output_metrics['peak_dbfs'], ' dBFS')}")
+    print(f"Peak protection: {result.peak_protection_gain_reduction_db:.2f} dB")
+    print(f"Processing duration: {result.processing_duration:.2f} seconds")
+    print(f"\nOutput:\n{result.audio_path}")
+    print(f"Reports:\n{result.metadata_path}\n{result.text_path}")
+    print("\nMastering: PASS")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Dispatch CLI commands while retaining the default environment check."""
     parser = argparse.ArgumentParser(description="MusicReviver local audio restoration tools")
@@ -290,6 +315,11 @@ def main(argv: list[str] | None = None) -> int:
         help="stem source selection (default: auto prefers restored)",
     )
     mix_parser.add_argument("--force", action="store_true", help="replace existing mix output")
+    master_parser = subparsers.add_parser("master", help="master an existing Milestone 6 mix")
+    master_parser.add_argument("path", type=Path, help="original project media path")
+    master_parser.add_argument("--mode", choices=[item.value for item in MasteringMode],
+                               default=MasteringMode.BALANCED.value)
+    master_parser.add_argument("--force", action="store_true", help="replace existing master output")
     args = parser.parse_args(argv)
     if args.command == "import":
         return run_import_command(args.path, force=args.force)
@@ -307,6 +337,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_restore_command(args.path, strength=args.strength, force=args.force)
     if args.command == "mix":
         return run_mix_command(args.path, source=args.source, force=args.force)
+    if args.command == "master":
+        return run_master_command(args.path, mode=args.mode, force=args.force)
     return run_environment_command()
 
 

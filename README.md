@@ -4,7 +4,7 @@
 
 MusicReviver is a local, AI-assisted music restoration and reconstruction application intended to improve the perceived recording quality of older audio while respecting the musicians' original performances.
 
-> **Status:** Milestones 1–6 are complete. MusicReviver provides validated media import, local AI stem separation, objective analysis, conservative restoration, and reference-aware stem recombination.
+> **Status:** Milestones 1–7 are complete. MusicReviver provides validated media import, local AI stem separation, objective analysis, conservative restoration, reference-aware stem recombination, and preservation-first mastering.
 
 ## Goals
 
@@ -56,7 +56,10 @@ MusicReviver is designed around local processing. User recordings should remain 
 - **Milestone 4 — Audio analysis (complete):** objective full-mix and per-stem measurements for future restoration decisions.
 - **Milestone 5 — Restoration (complete):** conservative, measurement-guided planning and stem processing.
 - **Milestone 6 — Mixing / recombination (complete):** bounded reference-aware stem gains, safe floating-point summing, and objective comparison.
-- **Milestone 7 — Mastering:** optional final delivery processing and comparison.
+- **Milestone 7 — Mastering (complete):** bounded, measurement-guided stereo mastering with archival, balanced, and modern modes.
+- **Milestone 8 — End-to-end pipeline orchestration.**
+- **Milestone 9 — PySide6 desktop GUI.**
+- **Milestone 10 — Packaging / executable.**
 - **Later — Experimental reconstruction:** opt-in, instrument-specific reconstruction workflows.
 
 ## Requirements
@@ -306,6 +309,39 @@ Final output remains 48 kHz, stereo, 24-bit PCM WAV under `output/<project>/mix/
 The engine does not time-shift, resample, invert polarity, widen stereo, add effects,
 or perform mastering. A future PySide6 desktop interface can call the same structured
 Python API as part of a simple Restore / Modernize workflow.
+
+## Milestone 7 — Mastering
+
+Mastering consumes an existing valid Milestone 6 mix and never starts import,
+separation, restoration, or mixing automatically. The default `balanced` mode applies
+moderate polish only when measurements justify it. `archival` prioritizes maximum
+preservation and generous headroom; `modern` permits somewhat stronger—but still
+bounded—gain, broad EQ, compression, and peak control.
+
+```powershell
+python app.py master "input/song.mp3"
+python app.py master "input/song.mp3" --mode archival
+python app.py master "input/song.mp3" --mode modern --force
+```
+
+Loudness ranges are guidance, not guaranteed targets: archival uses -20 to -16 LUFS,
+balanced uses -16 to -13 LUFS, and modern uses -13 to -10 LUFS. Preservation and
+sample-peak headroom always take priority. Automatic gain boosts are capped at 1, 3,
+and 5 dB respectively, and an already-loud master is not amplified merely to reach a
+target. Output ceilings are -1.5, -1.0, and -0.8 dBFS sample peak; reports label these
+as sample peaks rather than claiming true-peak measurement.
+
+EQ is optional broad peaking EQ, limited to ±0.5, ±1.0, or ±1.5 dB and biased toward
+cuts. Stereo-linked bus compression is optional, has no makeup gain, preserves channel
+relationships, and is limited to low ratios (at most 1.2:1, 1.5:1, or 1.8:1). Final
+peak protection is deterministic attenuation only. Excessive reduction lowers the
+achieved loudness and generates a warning instead of crushing transients.
+
+This milestone intentionally includes no saturation, multiband compression, stereo
+widening, mid/side enhancement, clipping, or streaming-platform presets. Masters and
+strict JSON/text reports are staged together under `output/<project>/master/`; output
+remains 48 kHz stereo 24-bit PCM WAV. The same typed API is directly callable by a
+future GUI.
 
 ## Reconstruction disclaimer
 
