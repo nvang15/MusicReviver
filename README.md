@@ -4,7 +4,7 @@
 
 MusicReviver is a local, AI-assisted music restoration and reconstruction application intended to improve the perceived recording quality of older audio while respecting the musicians' original performances.
 
-> **Status:** Milestones 1–7 are complete. MusicReviver provides validated media import, local AI stem separation, objective analysis, conservative restoration, reference-aware stem recombination, and preservation-first mastering.
+> **Status:** Milestones 1–8 are complete. MusicReviver provides a resumable end-to-end workflow over its validated import, separation, analysis, restoration, mixing, and mastering engines.
 
 ## Goals
 
@@ -57,10 +57,10 @@ MusicReviver is designed around local processing. User recordings should remain 
 - **Milestone 5 — Restoration (complete):** conservative, measurement-guided planning and stem processing.
 - **Milestone 6 — Mixing / recombination (complete):** bounded reference-aware stem gains, safe floating-point summing, and objective comparison.
 - **Milestone 7 — Mastering (complete):** bounded, measurement-guided stereo mastering with archival, balanced, and modern modes.
-- **Milestone 8 — End-to-end pipeline orchestration.**
+- **Milestone 8 — End-to-end pipeline orchestration (complete):** resumable, configuration-aware coordination of every backend stage.
 - **Milestone 9 — PySide6 desktop GUI.**
-- **Milestone 10 — Packaging / executable.**
-- **Later — Experimental reconstruction:** opt-in, instrument-specific reconstruction workflows.
+- **Milestone 10 — Packaging / Windows executable.**
+- **Milestone 11 — Advanced reconstruction / instrument re-synthesis:** explicit, opt-in experimental workflows.
 
 ## Requirements
 
@@ -342,6 +342,58 @@ widening, mid/side enhancement, clipping, or streaming-platform presets. Masters
 strict JSON/text reports are staged together under `output/<project>/master/`; output
 remains 48 kHz stereo 24-bit PCM WAV. The same typed API is directly callable by a
 future GUI.
+
+## Milestone 8 — End-to-End Pipeline
+
+The `modernize` command coordinates the existing backend APIs in order without
+duplicating their processing logic:
+
+```text
+import → separation → analysis → restoration → mixing → mastering
+```
+
+Run the default pipeline or select existing backend options:
+
+```powershell
+python app.py modernize "input/song.mp3"
+
+python app.py modernize "input/song.mp3" `
+  --restoration balanced `
+  --mastering modern
+
+python app.py modernize "input/song.mp3" `
+  --model "UVR-MDX-NET-Inst_HQ_5.onnx" `
+  --device auto `
+  --mastering balanced
+
+python app.py modernize "input/song.mp3" --force
+```
+
+Normal execution is resumable. Each input is identified by a SHA-256 content hash,
+and every stage has a dependency fingerprint plus output validation. A valid stage is
+reused only when both its fingerprint and its published files remain compatible.
+Changing the separation model reruns separation and everything downstream; changing
+restoration strength reruns restoration, mixing, and mastering; changing mastering
+mode reruns mastering only. Device selection is deliberately excluded from output
+invalidation because it does not change the requested separation semantics. Existing
+model-aware compatibility checks still decide whether CPU or DirectML can be used.
+
+`--force` reruns all stages. Individual backend modules retain their staged replacement
+behavior, so an existing valid stage remains available if its replacement fails.
+Pipeline failure stops all downstream work and records the failed/skipped states.
+Cancellation can be requested through the Python API and is checked between stages;
+hard termination of an active AI inference is intentionally deferred.
+
+Pipeline state and a readable report are stored in
+`output/<project>/pipeline/pipeline.json` and `pipeline.txt`. The structured result
+also exposes the canonical source, arbitrary discovered stems, analysis reports,
+restored stems, mix, and finished master under `output/<project>/master/`. Stem names
+are discovered dynamically, so six-stem, two-stem, and future model layouts follow
+the same workflow.
+
+The future PySide6 application will call the same `src.pipeline.modernize` Python API.
+Progress is delivered as typed events rather than console text, and no GUI dependency
+or global mutable pipeline state is present in the core orchestrator.
 
 ## Reconstruction disclaimer
 
