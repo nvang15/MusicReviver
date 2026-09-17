@@ -261,6 +261,12 @@ Supported automatic actions are:
 - Safety peak protection only when planned processing approaches digital full scale;
   it is not used to increase loudness.
 
+The DSP layer is portable NumPy/SciPy code: stable Butterworth second-order-section
+filters provide high-pass cleanup, a deterministic linked-stereo envelope applies
+gentle compression without makeup gain, and peak safety uses attenuation-only gain
+when the configured ceiling would otherwise be exceeded. Normal-length files use
+zero-phase filtering; very short files use safely initialized causal SOS filtering.
+
 MusicReviver warns about detected clipping but does not claim to repair it. The
 noise-floor value is an estimate that may contain musical material, so restoration
 does not apply a hard gate or neural denoising. Stereo correlation warnings do not

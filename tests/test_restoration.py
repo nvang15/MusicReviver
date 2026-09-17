@@ -1,4 +1,6 @@
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -7,7 +9,14 @@ import soundfile as sf
 
 from src.audio.metadata import probe_media
 from src.restoration import processor
-from src.restoration.dsp import process_audio
+from src.restoration.dsp import (
+    PEAK_CEILING_AMPLITUDE,
+    apply_peak_protection,
+    gentle_compressor,
+    high_pass_filter,
+    process_audio,
+    remove_dc_offset,
+)
 from src.restoration.exceptions import RestorationOutputExistsError, RestorationProcessingError
 from src.restoration.models import RestorationAction, RestorationPlan, RestorationStrength
 from src.restoration.planner import plan_restoration
@@ -129,6 +138,86 @@ def test_processed_output_is_canonical_and_removes_dc(tmp_path: Path) -> None:
     assert rate == SAMPLE_RATE and audio.shape[1] == 2
     assert abs(float(np.mean(audio))) < 1e-5
     assert float(np.max(np.abs(audio))) < 1.0
+
+
+def test_dsp_import_does_not_require_pedalboard() -> None:
+    code = (
+        "import builtins; original=builtins.__import__; "
+        "builtins.__import__=lambda name,*a,**k: (_ for _ in ()).throw(ImportError(name)) "
+        "if name.startswith('pedalboard') else original(name,*a,**k); "
+        "import src.restoration.dsp"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True, capture_output=True, text=True)
+
+
+def test_high_pass_attenuates_below_cutoff_and_preserves_length() -> None:
+    times = np.arange(SAMPLE_RATE * 2) / SAMPLE_RATE
+    low = np.sin(2 * np.pi * 20 * times)
+    audio = np.vstack((low, low))
+    filtered = high_pass_filter(audio, SAMPLE_RATE, 80.0)
+    assert filtered.shape == audio.shape
+    assert np.sqrt(np.mean(filtered ** 2)) < np.sqrt(np.mean(audio ** 2)) * 0.15
+
+
+def test_high_pass_retains_above_cutoff_content() -> None:
+    times = np.arange(SAMPLE_RATE) / SAMPLE_RATE
+    high = np.sin(2 * np.pi * 1000 * times)
+    audio = np.vstack((high, high))
+    filtered = high_pass_filter(audio, SAMPLE_RATE, 80.0)
+    assert np.sqrt(np.mean(filtered ** 2)) > np.sqrt(np.mean(audio ** 2)) * 0.98
+
+
+def test_compressor_reduces_triggered_peaks() -> None:
+    audio = np.full((2, SAMPLE_RATE), 0.8)
+    compressed = gentle_compressor(
+        audio, SAMPLE_RATE, threshold_db=-12.0, ratio=1.6, attack_ms=5.0, release_ms=100.0
+    )
+    assert np.max(np.abs(compressed[:, SAMPLE_RATE // 2:])) < 0.8
+
+
+def test_compressor_leaves_below_threshold_signal_unchanged() -> None:
+    audio = np.full((2, 5000), 0.05)
+    compressed = gentle_compressor(
+        audio, SAMPLE_RATE, threshold_db=-12.0, ratio=1.6, attack_ms=5.0, release_ms=100.0
+    )
+    assert compressed == pytest.approx(audio, abs=1e-12)
+
+
+def test_linked_compression_preserves_stereo_relationship() -> None:
+    times = np.arange(SAMPLE_RATE) / SAMPLE_RATE
+    left = 0.8 * np.sin(2 * np.pi * 440 * times)
+    audio = np.vstack((left, left * 0.5))
+    compressed = gentle_compressor(
+        audio, SAMPLE_RATE, threshold_db=-18.0, ratio=1.6, attack_ms=5.0, release_ms=100.0
+    )
+    nonzero = np.abs(compressed[0]) > 1e-8
+    assert compressed[1, nonzero] == pytest.approx(compressed[0, nonzero] * 0.5, abs=1e-10)
+
+
+def test_peak_protection_only_attenuates_and_prevents_clipping() -> None:
+    loud = np.array([[1.2, -1.1], [0.6, -0.55]])
+    protected, applied = apply_peak_protection(loud)
+    assert applied is True
+    assert np.max(np.abs(protected)) == pytest.approx(PEAK_CEILING_AMPLITUDE)
+    assert np.all(np.abs(protected) <= np.abs(loud))
+    quiet = loud * 0.1
+    unchanged, applied = apply_peak_protection(quiet)
+    assert applied is False
+    assert unchanged is quiet
+
+
+def test_portable_dc_removal_silence_short_audio_and_finiteness() -> None:
+    offset = np.array([[0.2, 0.3, 0.4], [-0.2, -0.1, 0.0]])
+    corrected = remove_dc_offset(offset)
+    assert np.mean(corrected, axis=1) == pytest.approx([0.0, 0.0], abs=1e-12)
+    silence = np.zeros((2, 3))
+    filtered = high_pass_filter(silence, SAMPLE_RATE, 60.0)
+    compressed = gentle_compressor(
+        filtered, SAMPLE_RATE, threshold_db=-12.0, ratio=1.4, attack_ms=20.0, release_ms=150.0
+    )
+    assert compressed.shape == silence.shape
+    assert np.all(np.isfinite(compressed))
+    assert np.count_nonzero(compressed) == 0
 
 
 def project_fixture(tmp_path: Path, stems=("vocals", "future_stem")):
