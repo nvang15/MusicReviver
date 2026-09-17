@@ -4,7 +4,7 @@
 
 MusicReviver is a local, AI-assisted music restoration and reconstruction application intended to improve the perceived recording quality of older audio while respecting the musicians' original performances.
 
-> **Status:** Milestones 1–9 are complete. MusicReviver provides a resumable end-to-end backend workflow and a native PySide6 desktop interface.
+> **Status:** Milestones 1–10 are complete. MusicReviver provides a resumable end-to-end backend workflow, a native PySide6 desktop interface, and a maintainable Windows onedir build.
 
 ## Goals
 
@@ -59,8 +59,9 @@ MusicReviver is designed around local processing. User recordings should remain 
 - **Milestone 7 — Mastering (complete):** bounded, measurement-guided stereo mastering with archival, balanced, and modern modes.
 - **Milestone 8 — End-to-end pipeline orchestration (complete):** resumable, configuration-aware coordination of every backend stage.
 - **Milestone 9 — PySide6 desktop GUI (complete):** native task selection, background processing, progress, cancellation, results, and safe export.
-- **Milestone 10 — Packaging / Windows executable.**
-- **Milestone 11 — Advanced reconstruction / instrument re-synthesis:** explicit, opt-in experimental workflows.
+- **Milestone 10 — Windows packaging (complete):** PyInstaller onedir builds with external writable data and bundled FFmpeg tools.
+- **Milestone 11 — Installer / distribution polish.**
+- **Milestone 12 — Advanced reconstruction / instrument enhancement:** explicit, opt-in experimental workflows.
 
 ## Requirements
 
@@ -430,8 +431,61 @@ filenames receive a numbered suffix and are never silently overwritten.
 
 The GUI contains no audio processing algorithms and does not use the CLI parser. It
 calls the same backend and orchestration Python APIs as the command-line interface.
-Audio playback, waveform display, loudness-matched A/B comparison, and packaging are
-deferred to later milestones.
+Audio playback, waveform display, loudness-matched A/B comparison, and installer polish
+are deferred to later milestones.
+
+## Milestone 10 — Windows Packaging
+
+MusicReviver provides a PyInstaller `onedir` build that launches the existing dark
+PySide6 GUI without requiring an installed Python interpreter or a repository checkout.
+Build prerequisites are Windows, Python 3.11, project/build dependencies, and local
+`ffmpeg.exe` plus `ffprobe.exe` binaries.
+
+```powershell
+py -3.11 -m pip install -r requirements-build.txt
+py -3.11 packaging\build_windows.py --clean
+```
+
+The release executable is created at:
+
+```text
+dist\MusicReviver\MusicReviver.exe
+```
+
+Release builds are windowed and do not open a console. A diagnostic build retains a
+console and enables PyInstaller bootloader diagnostics:
+
+```powershell
+py -3.11 packaging\build_windows.py --clean --debug
+```
+
+The build helper locates FFmpeg through `PATH`, or through an explicitly supplied
+directory, then copies both tools into the distribution:
+
+```powershell
+$env:MUSICREVIVER_FFMPEG_DIR = "C:\path\to\ffmpeg\bin"
+py -3.11 packaging\build_windows.py --clean
+```
+
+Packaged applications prefer `bin\ffmpeg.exe` and `bin\ffprobe.exe`, with `PATH` as a
+fallback. Writable `input`, `output`, `models`, and `temp` directories live beside the
+executable and are created when absent; PyInstaller's temporary bundle directory is
+never used for writable state. Source execution retains repository-local directories.
+
+AI model weights are external and are not included by default. For a private local
+smoke build only, an existing cache can be copied explicitly:
+
+```powershell
+py -3.11 packaging\build_windows.py --clean --include-model-cache
+```
+
+The helper never copies existing user `input`, `output`, or `temp` contents. `build/`,
+`dist/`, media, model weights, and copied executables remain ignored by Git.
+
+Before publicly distributing a binary, review the applicable licenses and distribution
+terms for FFmpeg, PySide6/Qt, PyInstaller, audio-separator, ONNX Runtime, PyTorch, and
+the other bundled dependencies. No installer, code signing, custom icon, automatic
+updater, or DirectML guarantee is provided in this milestone.
 
 ## Reconstruction disclaimer
 

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from src.audio.metadata import MediaImportError, MediaMetadata, probe_media
 from src.config import OUTPUT_DIR, PROJECT_ROOT
+from src.runtime import RuntimeDependencyError, resolve_executable
 
 INTERNAL_SAMPLE_RATE = 48_000
 INTERNAL_CHANNELS = 2
@@ -46,12 +47,20 @@ def is_executable_available(executable: str) -> bool:
 
 def is_ffmpeg_available() -> bool:
     """Return whether FFmpeg is available on PATH."""
-    return is_executable_available("ffmpeg")
+    try:
+        resolve_executable("ffmpeg")
+        return True
+    except RuntimeDependencyError:
+        return False
 
 
 def is_ffprobe_available() -> bool:
     """Return whether FFprobe is available on PATH."""
-    return is_executable_available("ffprobe")
+    try:
+        resolve_executable("ffprobe")
+        return True
+    except RuntimeDependencyError:
+        return False
 
 
 def safe_project_name(path: Path) -> str:
@@ -69,10 +78,10 @@ def _relative_or_filename(path: Path, project_root: Path) -> str:
         return path.name
 
 
-def get_ffmpeg_version(*, ffmpeg: str = "ffmpeg") -> str | None:
+def get_ffmpeg_version(*, ffmpeg: str | None = None) -> str | None:
     """Return the first FFmpeg version line when available."""
     try:
-        result = subprocess.run([ffmpeg, "-version"], capture_output=True, text=True, check=False)
+        result = subprocess.run([ffmpeg or resolve_executable("ffmpeg"), "-version"], capture_output=True, text=True, check=False)
     except OSError:
         return None
     lines = result.stdout.splitlines()
@@ -85,11 +94,13 @@ def convert_media(
     output_root: Path = OUTPUT_DIR,
     project_root: Path = PROJECT_ROOT,
     force: bool = False,
-    ffmpeg: str = "ffmpeg",
-    ffprobe: str = "ffprobe",
+    ffmpeg: str | None = None,
+    ffprobe: str | None = None,
 ) -> ConversionResult:
     """Probe and convert media to stereo 48 kHz, 24-bit PCM WAV."""
     input_path = Path(input_path)
+    ffmpeg = ffmpeg or resolve_executable("ffmpeg")
+    ffprobe = ffprobe or resolve_executable("ffprobe")
     metadata = probe_media(input_path, ffprobe=ffprobe)
     project_name = safe_project_name(input_path)
     project_directory = Path(output_root) / project_name

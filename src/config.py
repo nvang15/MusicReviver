@@ -1,14 +1,14 @@
 """Project paths and directory initialization."""
 
-from pathlib import Path
-
 from src.utils.paths import ensure_directories
+from src.runtime import runtime_paths
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-INPUT_DIR = PROJECT_ROOT / "input"
-OUTPUT_DIR = PROJECT_ROOT / "output"
-MODEL_DIR = PROJECT_ROOT / "models"
-TEMP_DIR = PROJECT_ROOT / "temp"
+_RUNTIME = runtime_paths()
+PROJECT_ROOT = _RUNTIME.root
+INPUT_DIR = _RUNTIME.input
+OUTPUT_DIR = _RUNTIME.output
+MODEL_DIR = _RUNTIME.models
+TEMP_DIR = _RUNTIME.temp
 
 PROJECT_DIRECTORIES = (INPUT_DIR, OUTPUT_DIR, MODEL_DIR, TEMP_DIR)
 
