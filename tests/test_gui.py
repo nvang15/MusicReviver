@@ -113,18 +113,46 @@ def test_input_model_and_task_option_visibility(application, tmp_path: Path) -> 
     value.close()
 
 
-def test_browse_and_open_folder_actions(application, tmp_path: Path,
-                                        monkeypatch: pytest.MonkeyPatch) -> None:
+def test_browse_action_updates_input(application, tmp_path: Path,
+                                     monkeypatch: pytest.MonkeyPatch) -> None:
     value = window(application, tmp_path)
     chosen = tmp_path / "picked.wav"
     monkeypatch.setattr("src.gui.widgets.file_picker.QFileDialog.getOpenFileName",
                         lambda *args: (str(chosen), "Media files"))
     value.file_picker.browse()
     assert value.file_picker.path == chosen
+    value.close()
+
+
+def test_open_folder_dispatches_to_windows_startfile(tmp_path: Path,
+                                                     monkeypatch: pytest.MonkeyPatch) -> None:
     opened = []
-    monkeypatch.setattr(main_window.os, "startfile", lambda path: opened.append(path))
+    monkeypatch.setattr(main_window.sys, "platform", "win32")
+    monkeypatch.setattr(main_window.os, "startfile", lambda path: opened.append(path), raising=False)
     main_window.open_folder(tmp_path)
     assert opened == [str(tmp_path)]
+
+
+@pytest.mark.parametrize("platform,command", [("linux", "xdg-open"), ("darwin", "open")])
+def test_open_folder_dispatches_to_platform_command(tmp_path: Path,
+                                                    monkeypatch: pytest.MonkeyPatch,
+                                                    platform: str, command: str) -> None:
+    launched = []
+    monkeypatch.setattr(main_window.sys, "platform", platform)
+    monkeypatch.setattr(main_window.subprocess, "Popen", lambda args: launched.append(args))
+    main_window.open_folder(tmp_path)
+    assert launched == [[command, str(tmp_path)]]
+
+
+def test_open_folder_failure_is_reported_readably(application, tmp_path: Path,
+                                                   monkeypatch: pytest.MonkeyPatch) -> None:
+    value = window(application, tmp_path)
+    value.current_result = result(tmp_path)
+    monkeypatch.setattr(main_window, "open_folder",
+                        lambda path: (_ for _ in ()).throw(OSError("opener unavailable")))
+    value.open_output_folder()
+    assert "Could not open the output folder" in value.progress_panel.details.toPlainText()
+    assert "opener unavailable" in value.progress_panel.details.toPlainText()
     value.close()
 
 
