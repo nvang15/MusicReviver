@@ -1,5 +1,7 @@
 # MusicReviver
 
+[![CI](https://github.com/nvang15/MusicReviver/actions/workflows/ci.yml/badge.svg)](https://github.com/nvang15/MusicReviver/actions/workflows/ci.yml)
+
 MusicReviver is a local, AI-assisted music restoration and reconstruction application intended to improve the perceived recording quality of older audio while respecting the musicians' original performances.
 
 > **Status:** Milestones 1–3 are complete. MusicReviver provides validated media import and real, local AI stem separation through `audio-separator`.
@@ -77,6 +79,13 @@ python -m pytest
 ```
 
 If PowerShell blocks activation, the environment's Python can be invoked directly as `.\.venv\Scripts\python.exe`.
+
+## Continuous integration
+
+Pull requests targeting `main` and pushes to `main` are automatically validated on
+Ubuntu with Python 3.11. CI runs the pytest suite and Python compilation checks,
+verifies FFmpeg and FFprobe availability, runs the application environment check,
+and rejects accidentally tracked media, models, stems, or temporary runtime files.
 
 ## Milestone 1 functionality
 
