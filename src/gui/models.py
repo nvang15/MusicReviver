@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -52,27 +51,7 @@ class GuiResult:
     summary: str
 
 
-def unique_destination(directory: Path, filename: str) -> Path:
-    candidate = directory / filename
-    if not candidate.exists():
-        return candidate
-    source = Path(filename)
-    counter = 2
-    while True:
-        candidate = directory / f"{source.stem}_{counter}{source.suffix}"
-        if not candidate.exists():
-            return candidate
-        counter += 1
-
-
 def export_files(files: tuple[Path, ...], destination: Path) -> tuple[Path, ...]:
-    """Copy generated files without silently replacing user data."""
-    destination.mkdir(parents=True, exist_ok=True)
-    exported: list[Path] = []
-    for source in files:
-        if not source.is_file():
-            continue
-        target = unique_destination(destination, source.name)
-        shutil.copy2(source, target)
-        exported.append(target)
-    return tuple(exported)
+    """Compatibility adapter; use the independent export API for all execution."""
+    from src.exporting import ExportConfig, export_files as export
+    return tuple(item.path for item in export(files, ExportConfig(destination)).files)

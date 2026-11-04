@@ -12,12 +12,15 @@ from PySide6.QtWidgets import (QButtonGroup, QFileDialog, QGroupBox, QHBoxLayout
                                QLabel, QMainWindow, QMessageBox, QPushButton,
                                QRadioButton, QVBoxLayout, QWidget)
 
-from src.gui.models import GuiJobConfig, GuiResult, GuiTask, export_files
+from src.gui.models import GuiJobConfig, GuiResult, GuiTask
 from src.gui.widgets.file_picker import FilePicker
 from src.gui.widgets.options_panel import OptionsPanel
 from src.gui.widgets.output_panel import OutputPanel
 from src.gui.widgets.progress_panel import ProgressPanel
 from src.gui.worker import ProcessingWorker
+from src.gui.export_dialog import ExportDialog
+from src.gui.export_worker import ExportWorker
+from src.gui.model_readiness import model_readiness
 from src.mastering.models import MasteringMode
 from src.restoration.models import RestorationStrength
 from src.separation.backends import DeviceMode
@@ -123,6 +126,14 @@ class MainWindow(QMainWindow):
         if error:
             self._friendly_error(error)
             return
+        if config.task in (GuiTask.MODERNIZE, GuiTask.SEPARATE) and self.show_dialogs:
+            choice = QMessageBox.question(self, "Separation model",
+                model_readiness(config.separation_model) + "\n\nContinue and allow any required model downloads?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            if choice != QMessageBox.StandardButton.Yes:
+                return
+        self.cancel_note.setText("Cancellation will occur after the current processing stage completes.")
         self._set_processing(True)
         self.progress_panel.begin()
         self.thread = QThread(self)
@@ -142,7 +153,7 @@ class MainWindow(QMainWindow):
         if self.worker:
             self.worker.request_cancel()
             self.cancel_button.setEnabled(False)
-            self.progress_panel.message_label.setText("Cancellation requested; waiting for the current stage to finish.")
+            self.progress_panel.message_label.setText("Cancellation requested; waiting for the current stage or file to finish.")
 
     def _set_processing(self, active: bool) -> None:
         self.file_picker.set_controls_enabled(not active)
@@ -152,10 +163,12 @@ class MainWindow(QMainWindow):
         self.start_button.setEnabled(not active)
         self.cancel_button.setEnabled(active)
         self.cancel_note.setVisible(active)
+        self.output_panel.export_button.setEnabled(not active and bool(self.current_result and self.current_result.files))
 
     def _job_completed(self, result: GuiResult) -> None:
         self.current_result = result
         self.output_panel.set_result(result)
+        self.output_panel.export_button.setEnabled(False)
         self.progress_panel.finish(result.summary, True)
 
     def _job_failed(self, summary: str, details: str) -> None:
@@ -183,21 +196,47 @@ class MainWindow(QMainWindow):
             self._friendly_error(f"Could not open the output folder: {exc}")
 
     def export_result(self) -> None:
-        if not self.current_result:
+        if not self.current_result or self.thread is not None:
             return
         initial = self.settings.value("last_export_directory", "", str)
-        destination = QFileDialog.getExistingDirectory(self, "Export MusicReviver result", initial)
-        if not destination:
+        dialog = ExportDialog(self.current_result, initial, self)
+        if not dialog.exec():
             return
-        files = ((self.current_result.primary_output,) if self.current_result.task is GuiTask.MODERNIZE
-                 and self.current_result.primary_output else self.current_result.files)
-        try:
-            exported = export_files(tuple(files), Path(destination))
-        except OSError as exc:
-            self._friendly_error(f"Could not export the result: {exc}")
-            return
-        self.settings.setValue("last_export_directory", destination)
-        self.progress_panel.details.appendPlainText(f"Exported {len(exported)} file(s) to {destination}")
+        config = dialog.config()
+        self.settings.setValue("last_export_directory", str(config.destination))
+        self._set_processing(True)
+        self.cancel_note.setText("Cancellation will occur after the current file completes, before publication.")
+        self.progress_panel.begin()
+        self.thread = QThread(self)
+        self.worker = ExportWorker(dialog.selected_files(), config)
+        self.worker.moveToThread(self.thread)
+        self.thread.started.connect(self.worker.run)
+        self.worker.progress.connect(self._export_progress)
+        self.worker.completed.connect(self._export_completed)
+        self.worker.failed.connect(self._job_failed)
+        self.worker.cancelled.connect(self._job_cancelled)
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self._thread_finished)
+        self.thread.start()
+
+    def _export_progress(self, event):
+        self.progress_panel.stage_label.setText("Export")
+        self.progress_panel.bar.setRange(0, 0)
+        self.progress_panel.message_label.setText(f"{event.completed}/{event.total} files prepared. {event.message}")
+        self.progress_panel.details.appendPlainText(event.message)
+
+    def _export_completed(self, result):
+        self.progress_panel.finish(f"Exported {len(result.files)} file(s) in {result.elapsed_seconds:.1f}s.", True)
+        for item in result.files:
+            self.progress_panel.details.appendPlainText(str(item.path))
+
+    def closeEvent(self, event):
+        if self.thread is not None:
+            self._friendly_error("A job is still running. Cancel and wait for it to finish before closing.")
+            event.ignore()
+        else:
+            event.accept()
 
 
 def open_folder(path: Path) -> None:

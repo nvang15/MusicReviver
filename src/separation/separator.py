@@ -20,6 +20,7 @@ from src.separation.backends import AudioSeparatorBackend, DeviceMode, device_se
 from src.separation.exceptions import BackendUnavailableError, MissingStemError, OutputExistsError, SeparationError
 from src.separation.models import DEFAULT_MODEL_ID, SeparationModel, get_model
 from src.separation.stems import StemType
+from src.runtime import resolve_executable
 
 
 @dataclass(frozen=True)
@@ -102,10 +103,10 @@ def _validate_stem(path: Path, source_duration: float | None) -> None:
             raise SeparationError(f"Generated stem duration differs too much from the source: {path.name}")
 
 
-def _normalize_stem(source: Path, destination: Path, *, ffmpeg: str = "ffmpeg") -> None:
+def _normalize_stem(source: Path, destination: Path, *, ffmpeg: str | None = None) -> None:
     """Create a canonical 48 kHz, stereo, 24-bit PCM WAV without altering source."""
     command = [
-        ffmpeg, "-v", "error", "-nostdin", "-i", str(source), "-map", "0:a:0",
+        ffmpeg or resolve_executable("ffmpeg"), "-v", "error", "-nostdin", "-i", str(source), "-map", "0:a:0",
         "-vn", "-c:a", INTERNAL_CODEC, "-ar", str(INTERNAL_SAMPLE_RATE),
         "-ac", str(INTERNAL_CHANNELS), "-y", str(destination),
     ]

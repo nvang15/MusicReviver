@@ -8,6 +8,7 @@ from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
 from src.gui.main_window import MainWindow
+from src.runtime import configure_bundled_tools_path, ensure_runtime_directories
 
 
 DARK_STYLESHEET = """
@@ -133,6 +134,8 @@ def apply_dark_theme(application: QApplication) -> None:
 
 
 def create_application(argv: list[str] | None = None) -> QApplication:
+    ensure_runtime_directories()
+    configure_bundled_tools_path()
     application = QApplication.instance() or QApplication(argv if argv is not None else sys.argv)
     application.setApplicationName("MusicReviver")
     application.setOrganizationName("MusicReviver")

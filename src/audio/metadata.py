@@ -8,6 +8,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from src.runtime import resolve_executable
+
 AUDIO_EXTENSIONS = frozenset({".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg"})
 VIDEO_EXTENSIONS = frozenset({".mp4", ".mkv", ".mov", ".webm"})
 SUPPORTED_EXTENSIONS = AUDIO_EXTENSIONS | VIDEO_EXTENSIONS
@@ -88,9 +90,10 @@ def validate_input_path(path: Path) -> Path:
     return path
 
 
-def probe_media(path: Path, *, ffprobe: str = "ffprobe") -> MediaMetadata:
+def probe_media(path: Path, *, ffprobe: str | None = None) -> MediaMetadata:
     """Validate and inspect a media file with machine-readable ffprobe output."""
     path = validate_input_path(path)
+    ffprobe = ffprobe or resolve_executable("ffprobe")
     command = [ffprobe, "-v", "error", "-show_format", "-show_streams", "-of", "json", str(path)]
     try:
         result = subprocess.run(command, capture_output=True, text=True, check=False)
