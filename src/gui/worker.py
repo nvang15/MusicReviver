@@ -12,7 +12,7 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 from src.analysis.report import analyze_project
 from src.audio.converter import safe_project_name
-from src.config import OUTPUT_DIR
+from src.config import OUTPUT_DIR, PROJECT_ROOT
 from src.gui.models import GuiJobConfig, GuiResult, GuiTask
 from src.pipeline.exceptions import PipelineCancelled
 from src.pipeline.models import PipelineConfig, PipelineStage, PipelineStatus
@@ -97,7 +97,7 @@ def run_gui_job(config: GuiJobConfig, callback: Callable[[PipelineProgress], Non
         document, json_path, text_path = restore_project(
             config.input_path, strength=config.restoration_strength, force=config.force)
         files = tuple(Path(item["output"]) if Path(item["output"]).is_absolute()
-                      else Path.cwd() / item["output"] for item in document["results"].values())
+                      else PROJECT_ROOT / item["output"] for item in document["results"].values())
         files = (*files, json_path, text_path)
         primary, folder = None, json_path.parent
     elapsed = time.perf_counter() - started

@@ -121,7 +121,13 @@ def test_canonical_spec_exists_and_declares_onedir_windowed_release() -> None:
     assert "COLLECT(" in text
     assert "console=debug_build" in text
     assert 'MUSICREVIVER_BUILD_DEBUG' in text
-    assert 'hiddenimports=["audio_separator.separator"]' in text
+    for module in ("audio_separator.separator", "audio_separator.separator.architectures.demucs_separator",
+                   "audio_separator.separator.architectures.mdx_separator", "demucs.htdemucs",
+                   "audio_separator.separator.uvr_lib_v5.demucs.htdemucs"):
+        assert f'"{module}"' in text
+    for resource in ("models-scores.json", "models.json", "model-data.json"):
+        assert f'"{resource}"' in text
+    assert "str(vendored_modules)" in text
 
 
 def test_packaging_module_import_does_not_start_build(monkeypatch) -> None:

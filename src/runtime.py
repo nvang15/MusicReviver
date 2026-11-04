@@ -28,6 +28,27 @@ def is_frozen() -> bool:
     return bool(getattr(sys, "frozen", False))
 
 
+def initialize_standard_streams(paths: RuntimePaths | None = None) -> None:
+    """Supply missing pythonw/windowed streams before libraries capture them.
+
+    tqdm's Demucs progress renderer requires stderr.write(). Preserve console,
+    redirected, and test streams; only None is replaced. Diagnostics go outside
+    the bundle, with a null-device fallback if the log folder is not writable.
+    Normal exception propagation and GUI traceback reporting are unchanged.
+    """
+    paths = paths or runtime_paths()
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name) is not None:
+            continue
+        try:
+            paths.temp.mkdir(parents=True, exist_ok=True)
+            stream = (paths.temp / f"windowed-{name}.log").open(
+                "a", encoding="utf-8", errors="backslashreplace", buffering=1)
+        except OSError:
+            stream = open(os.devnull, "w", encoding="utf-8", errors="backslashreplace", buffering=1)
+        setattr(sys, name, stream)
+
+
 def application_root(*, frozen: bool | None = None, executable: Path | None = None,
                      source_file: Path | None = None) -> Path:
     """Return the external writable root, never PyInstaller's temporary bundle."""

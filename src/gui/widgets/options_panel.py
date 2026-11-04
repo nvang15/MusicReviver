@@ -3,6 +3,7 @@
 from PySide6.QtWidgets import QComboBox, QFormLayout, QGroupBox, QLabel
 
 from src.gui.models import GuiTask
+from src.gui.model_readiness import model_readiness
 from src.mastering.models import MasteringMode
 from src.restoration.models import RestorationStrength
 from src.separation.backends import DeviceMode
@@ -32,16 +33,20 @@ class OptionsPanel(QGroupBox):
         self.restoration_combo.setCurrentIndex(self.restoration_combo.findData(RestorationStrength.BALANCED))
         self.mastering_combo.setCurrentIndex(self.mastering_combo.findData(MasteringMode.BALANCED))
         self.model_label, self.device_label = QLabel("Separation model:"), QLabel("Device:")
+        self.readiness_label = QLabel()
+        self.readiness_label.setWordWrap(True)
         self.restoration_label, self.mastering_label = QLabel("Restoration:"), QLabel("Mastering:")
         layout = QFormLayout(self)
         for label, widget in ((self.model_label, self.model_combo), (self.device_label, self.device_combo),
                               (self.restoration_label, self.restoration_combo), (self.mastering_label, self.mastering_combo)):
             layout.addRow(label, widget)
+        layout.addRow(self.readiness_label)
         self.model_combo.currentIndexChanged.connect(self._update_devices)
         self._update_devices()
         self.set_task(GuiTask.MODERNIZE)
 
     def _update_devices(self) -> None:
+        self.readiness_label.setText(model_readiness(self.model_combo.currentData()))
         supported = get_model(self.model_combo.currentData()).supported_devices
         index = self.device_combo.findData(DeviceMode.DIRECTML)
         item = self.device_combo.model().item(index)
@@ -54,7 +59,7 @@ class OptionsPanel(QGroupBox):
         separation = task in {GuiTask.SEPARATE, GuiTask.MODERNIZE}
         restoration = task in {GuiTask.RESTORE, GuiTask.MODERNIZE}
         mastering = task is GuiTask.MODERNIZE
-        for widget in (self.model_label, self.model_combo, self.device_label, self.device_combo):
+        for widget in (self.model_label, self.model_combo, self.device_label, self.device_combo, self.readiness_label):
             widget.setVisible(separation)
         for widget in (self.restoration_label, self.restoration_combo):
             widget.setVisible(restoration)

@@ -1,5 +1,4 @@
 import os
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import time
 from pathlib import Path
@@ -22,7 +21,15 @@ from src.separation.models import MODEL_REGISTRY
 
 @pytest.fixture(scope="session")
 def application():
-    return create_application(["musicreviver-test"])
+    previous = os.environ.get("QT_QPA_PLATFORM")
+    os.environ["QT_QPA_PLATFORM"] = "offscreen"
+    try:
+        return create_application(["musicreviver-test"])
+    finally:
+        if previous is None:
+            os.environ.pop("QT_QPA_PLATFORM", None)
+        else:
+            os.environ["QT_QPA_PLATFORM"] = previous
 
 
 def pump(application, condition=lambda: True, timeout=1.5):
@@ -239,15 +246,17 @@ def test_results_accept_arbitrary_stems_and_final_master(application, tmp_path: 
     value.close()
 
 
-def test_export_final_master_stems_and_collisions(tmp_path: Path) -> None:
-    source_a, source_b = tmp_path / "a" / "master.wav", tmp_path / "b" / "organ.wav"
+def test_legacy_export_adapter_reports_and_collisions(tmp_path: Path) -> None:
+    # The legacy GUI adapter now delegates to staged export. Real audio coverage
+    # lives in test_exporting; reports must remain byte-for-byte copies.
+    source_a, source_b = tmp_path / "a" / "analysis.json", tmp_path / "b" / "analysis.txt"
     source_a.parent.mkdir(); source_b.parent.mkdir()
     source_a.write_bytes(b"master"); source_b.write_bytes(b"organ")
     destination = tmp_path / "export"
     first = export_files((source_a, source_b), destination)
     second = export_files((source_a,), destination)
-    assert [path.name for path in first] == ["master.wav", "organ.wav"]
-    assert second[0].name == "master_2.wav" and second[0].read_bytes() == b"master"
+    assert [path.name for path in first] == ["analysis.json", "analysis.txt"]
+    assert second[0].name == "analysis_2.json" and second[0].read_bytes() == b"master"
 
 
 def test_backend_error_is_readable_without_traceback_in_summary(application, tmp_path: Path) -> None:

@@ -60,8 +60,9 @@ MusicReviver is designed around local processing. User recordings should remain 
 - **Milestone 8 — End-to-end pipeline orchestration (complete):** resumable, configuration-aware coordination of every backend stage.
 - **Milestone 9 — PySide6 desktop GUI (complete):** native task selection, background processing, progress, cancellation, results, and safe export.
 - **Milestone 10 — Windows packaging (complete):** PyInstaller onedir builds with external writable data and bundled FFmpeg tools.
-- **Milestone 11 — Installer / distribution polish.**
-- **Milestone 12 — Advanced reconstruction / instrument enhancement:** explicit, opt-in experimental workflows.
+- **Milestone 11 — Audio export and full-song reliability:** selectable audio export implemented; full-song AI and updated packaged GUI validation remain pending.
+- **Milestone 12 — Installer / distribution polish.**
+- **Milestone 13 — Advanced reconstruction / instrument enhancement:** explicit, opt-in experimental workflows.
 
 ## Requirements
 
@@ -424,10 +425,11 @@ between stages, and the interface explicitly states that the active stage must f
 first.
 
 Results list arbitrary generated stem names and relevant report/output paths. **Open
-Output Folder** uses the platform-native folder opener. **Export Result…** copies the
-final master for Modernize, or the generated task files for separation, analysis, and
-restoration, without moving the internal `output/<project>/` cache. Existing destination
-filenames receive a numbered suffix and are never silently overwritten.
+Output Folder** uses the platform-native folder opener. **Export Result…** opens a
+file selection, destination, and audio format dialog. Modernize initially selects the
+final master; individual stems, restored stems, and the mix can also be selected.
+Analysis reports remain plain file copies. Internal `output/<project>/` files stay in
+place. Existing destination filenames receive a numbered suffix.
 
 The GUI contains no audio processing algorithms and does not use the CLI parser. It
 calls the same backend and orchestration Python APIs as the command-line interface.
@@ -486,6 +488,96 @@ Before publicly distributing a binary, review the applicable licenses and distri
 terms for FFmpeg, PySide6/Qt, PyInstaller, audio-separator, ONNX Runtime, PyTorch, and
 the other bundled dependencies. No installer, code signing, custom icon, automatic
 updater, or DirectML guarantee is provided in this milestone.
+
+## Milestone 11 — Audio Export and Full-Song Reliability
+
+Supported input extensions are WAV, MP3, FLAC, M4A, AAC, OGG, MP4, MKV, MOV, and
+WEBM, provided the installed FFmpeg can decode the file's actual codec. Import
+standardizes recordings to stereo, 48 kHz, 24-bit PCM WAV. Intermediate processing
+stays lossless; lossy encoding happens only when explicitly exporting.
+
+Choose **Export Result…**, check the desired files, choose a destination and format,
+then click **Export**. WAV is the default. Available formats are:
+
+| Format | Encoding |
+| --- | --- |
+| WAV | 24-bit PCM |
+| FLAC | Lossless, 24-bit |
+| MP3 | 192, 256, or 320 kbps; default 320 |
+| M4A | AAC at the selected nominal bitrate; actual bitrate depends on content |
+
+The installed FFmpeg must provide the selected encoder. Availability is checked
+in the export worker before any audio is converted; missing encoders produce a
+readable error. The locally bundled FFmpeg has all four encoders. Analysis-only
+exports hide audio controls and copy JSON/TXT reports without invoking FFmpeg.
+Arbitrary stem names and stem counts are supported. Modernize defaults to exporting
+the master, with other available results selectable. The same API can export any
+existing generated mix or stem without rerunning the pipeline.
+
+Export runs in a background Qt thread. Processing and export cannot run together.
+Cancel waits for the current file, then stops before publishing the batch. All files
+are staged and checked with FFprobe before publication. Collisions receive `_2`,
+`_3`, etc.; existing files are never silently replaced. Failed publication rolls
+back newly published files belonging to that attempt. A process/power failure during
+publication can leave a subset of complete outputs. On Linux/macOS, atomic
+publication requires a destination filesystem supporting hard links; Windows uses
+no-replace rename and does not have that restriction. Network filesystem guarantees
+depend on the filesystem implementation.
+
+Export does not normalize, adjust stereo balance, add DSP, or intentionally resample.
+Lossless output preserves canonical samples. MP3/AAC can have encoder padding and
+reconstructed peak overshoots; duration validation allows codec delay, and export
+does not silently lower the level to enforce the source master's peak ceiling.
+Export configuration/results expose codec, duration, rate, channels, bitrate, size,
+paths, and elapsed time through `src.exporting`; no extra sidecars are placed in the
+user's export folder.
+
+```python
+from pathlib import Path
+from src.exporting import AudioFormat, ExportConfig, export_files
+
+result = export_files(
+    (Path("output/song/master/balanced_master.wav"),),
+    ExportConfig(Path("exports"), AudioFormat.MP3, bitrate_kbps=320),
+)
+print(result.files[0].path)
+```
+
+There is no intentional 1–5 minute song limit. AI processing time and memory depend
+on duration, selected model, and device; full-song AI throughput and quality have
+not yet been validated for this milestone. Synthetic export checks demonstrate
+format mechanics, not restoration quality. Existing cached model files are external
+under `models/`. The GUI shows the selected model/cache and primary-file presence;
+this is not an integrity check. The separation backend can download missing weights
+and auxiliary metadata after the user agrees to proceed. Existing model-aware
+CPU/DirectML rules remain in force.
+
+Source execution uses repository-local runtime folders. Packaged execution uses
+`input/`, `output/`, `models/`, and `temp/` beside the executable, with bundled tools
+under `bin/`. Restored result paths resolve against this runtime root, independent
+of the launch directory. User exports may be placed in any supported writable folder.
+
+Run headless tests without setting a persistent PowerShell `QT_QPA_PLATFORM` value;
+the GUI test fixtures scope that setting themselves:
+
+```powershell
+py -3.11 -m pytest -q
+py -3.11 -m scripts.validate_exports --seconds 3 --bundled-tools --report temp\export-validation.json
+# Optional longer media-format checks (no AI):
+py -3.11 -m scripts.validate_exports --seconds 60 180 300 --bundled-tools
+```
+
+The validation script removes its synthetic media automatically. The optional JSON
+report under `temp/` is ignored. It measures source-API exports using real media
+tools; it does not prove the packaged GUI or AI modernization workflow. Rebuild the
+distribution to include Milestone 11 changes before doing an updated GUI smoke test.
+
+Local validation on September 29, 2026 passed for 3-, 60-, 180-, and 300-second
+synthetic stereo recordings in all four formats, including each MP3 bitrate.
+FFprobe reported preserved durations, 48 kHz, and two channels. Five-minute exports
+took approximately 0.18 seconds (WAV), 0.39 seconds (FLAC), 2.85–3.19 seconds (MP3),
+and 3.72 seconds (AAC) on the development machine. These are encoding timings only,
+not separation or modernization timings; other hardware and audio will differ.
 
 ## Reconstruction disclaimer
 
