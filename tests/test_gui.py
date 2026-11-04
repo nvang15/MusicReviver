@@ -101,6 +101,7 @@ def test_application_dark_theme_has_readable_enabled_and_disabled_colors(applica
     assert palette.color(QPalette.ColorRole.Window).name() == "#1e1f22"
     assert palette.color(QPalette.ColorRole.WindowText).name() == "#f1f3f5"
     assert palette.color(QPalette.ColorRole.Base).name() == "#25282c"
+    assert palette.color(QPalette.ColorRole.Highlight).name() == "#550816"
     assert palette.color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text).name() == "#9299a3"
     stylesheet = application.styleSheet()
     for selector in ("QLabel", "QLineEdit", "QPushButton", "QRadioButton", "QComboBox",

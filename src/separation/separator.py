@@ -111,7 +111,8 @@ def _normalize_stem(source: Path, destination: Path, *, ffmpeg: str | None = Non
         "-ac", str(INTERNAL_CHANNELS), "-y", str(destination),
     ]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        result = subprocess.run(command, shell=False, capture_output=True, text=True,
+                                encoding="utf-8", errors="replace", check=False)
     except OSError as exc:
         raise SeparationError(f"Unable to run FFmpeg while normalizing {source.name}: {exc}") from exc
     if result.returncode != 0:

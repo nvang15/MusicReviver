@@ -15,12 +15,12 @@ DARK_STYLESHEET = """
 QWidget {
     color: #f1f3f5;
     background-color: #1e1f22;
-    selection-background-color: #c75b28;
+    selection-background-color: #550816;
     selection-color: #ffffff;
 }
 QLabel { color: #e4e7eb; }
 QLabel#title {
-    color: #ff8a4c;
+    color: #c23b55;
     font-size: 26px;
     font-weight: 700;
 }
@@ -46,11 +46,11 @@ QLineEdit, QComboBox, QPlainTextEdit, QTextEdit, QListWidget {
     border: 1px solid #4b525c;
     border-radius: 4px;
     padding: 5px 7px;
-    selection-background-color: #c75b28;
+    selection-background-color: #550816;
 }
 QLineEdit:focus, QComboBox:focus, QPlainTextEdit:focus,
 QTextEdit:focus, QListWidget:focus {
-    border-color: #ff8a4c;
+    border-color: #8f2337;
 }
 QComboBox::drop-down {
     border-left: 1px solid #4b525c;
@@ -60,7 +60,7 @@ QComboBox QAbstractItemView {
     color: #f1f3f5;
     background-color: #25282c;
     border: 1px solid #59616c;
-    selection-background-color: #a94820;
+    selection-background-color: #550816;
 }
 QPushButton {
     color: #f1f3f5;
@@ -74,11 +74,13 @@ QPushButton:hover { background-color: #474d55; border-color: #747d89; }
 QPushButton:pressed { background-color: #30343a; }
 QPushButton:default {
     color: #ffffff;
-    background-color: #c75b28;
-    border-color: #ed7b42;
+    background-color: #550816;
+    border-color: #8f2337;
     font-weight: 600;
 }
-QPushButton:default:hover { background-color: #d96832; }
+QPushButton:default:hover { background-color: #701126; }
+QPushButton:checked { background-color: #550816; border-color: #b3364e; font-weight: 600; }
+QPushButton:checked:hover { background-color: #701126; }
 QPushButton:disabled {
     color: #9299a3;
     background-color: #303339;
@@ -87,7 +89,7 @@ QPushButton:disabled {
 QRadioButton { color: #e4e7eb; spacing: 7px; }
 QRadioButton::indicator { width: 15px; height: 15px; }
 QRadioButton::indicator:checked {
-    background-color: #ff8a4c;
+    background-color: #8f2337;
     border: 3px solid #34383e;
     border-radius: 7px;
 }
@@ -104,7 +106,7 @@ QProgressBar {
     min-height: 18px;
     text-align: center;
 }
-QProgressBar::chunk { background-color: #d96832; border-radius: 3px; }
+QProgressBar::chunk { background-color: #8f2337; border-radius: 3px; }
 QToolTip {
     color: #f1f3f5;
     background-color: #34383e;
@@ -124,7 +126,7 @@ def apply_dark_theme(application: QApplication) -> None:
     palette.setColor(QPalette.ColorRole.Text, QColor("#f1f3f5"))
     palette.setColor(QPalette.ColorRole.Button, QColor("#3a3f45"))
     palette.setColor(QPalette.ColorRole.ButtonText, QColor("#f1f3f5"))
-    palette.setColor(QPalette.ColorRole.Highlight, QColor("#c75b28"))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor("#550816"))
     palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
     palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, QColor("#9299a3"))
     palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor("#9299a3"))

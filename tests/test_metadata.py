@@ -36,7 +36,7 @@ def test_metadata_parsing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     monkeypatch.setattr(
         metadata.subprocess,
         "run",
-        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr=""),
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=json.dumps(payload).encode("utf-8"), stderr=b""),
     )
     result = metadata.probe_media(source)
     assert result.filename == "Example.MP3"
@@ -78,4 +78,22 @@ def test_probe_invocation_does_not_use_shell(monkeypatch: pytest.MonkeyPatch, tm
     monkeypatch.setattr(metadata.subprocess, "run", fake_run)
     metadata.probe_media(source)
     assert seen["command"][-1] == str(source)
-    assert "shell" not in seen["kwargs"]
+    assert seen["kwargs"]["shell"] is False and seen["kwargs"]["text"] is False
+
+
+def test_ffprobe_utf8_bom_and_unicode_are_decoded_independently_from_stderr(monkeypatch, tmp_path):
+    source = tmp_path / "入力音楽" / "夜に駆ける.wav"
+    source.parent.mkdir(); source.write_bytes(b"x")
+    payload = {"streams": [{"codec_type": "audio", "codec_name": "pcm_s24le", "sample_rate": "48000", "channels": 2}], "format": {"filename": str(source)}}
+    monkeypatch.setattr(metadata.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(
+        returncode=0, stdout=b"\xef\xbb\xbf" + json.dumps(payload, ensure_ascii=False).encode("utf-8"), stderr="診断".encode("utf-8")))
+    result = metadata.probe_media(source)
+    assert result.filename == "夜に駆ける.wav" and result.original_path == str(source)
+
+
+def test_invalid_json_reports_separate_unicode_stderr(monkeypatch, tmp_path):
+    source = tmp_path / "月亮代表我的心.wav"; source.write_bytes(b"x")
+    monkeypatch.setattr(metadata.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(
+        returncode=0, stdout=b"not-json", stderr="詳細エラー".encode("utf-8")))
+    with pytest.raises(metadata.MediaProbeError, match="詳細エラー"):
+        metadata.probe_media(source)

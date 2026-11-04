@@ -4,7 +4,7 @@
 
 MusicReviver is a local, AI-assisted music restoration and reconstruction application intended to improve the perceived recording quality of older audio while respecting the musicians' original performances.
 
-> **Status:** Milestones 1–10 are complete. MusicReviver provides a resumable end-to-end backend workflow, a native PySide6 desktop interface, and a maintainable Windows onedir build.
+> **Status:** Milestones 1–12 are complete. MusicReviver provides a resumable end-to-end backend workflow, native PySide6 desktop interface, audio export, and a non-destructive stem review workspace.
 
 ## Goals
 
@@ -60,9 +60,11 @@ MusicReviver is designed around local processing. User recordings should remain 
 - **Milestone 8 — End-to-end pipeline orchestration (complete):** resumable, configuration-aware coordination of every backend stage.
 - **Milestone 9 — PySide6 desktop GUI (complete):** native task selection, background processing, progress, cancellation, results, and safe export.
 - **Milestone 10 — Windows packaging (complete):** PyInstaller onedir builds with external writable data and bundled FFmpeg tools.
-- **Milestone 11 — Audio export and full-song reliability:** selectable audio export implemented; full-song AI and updated packaged GUI validation remain pending.
-- **Milestone 12 — Installer / distribution polish.**
-- **Milestone 13 — Advanced reconstruction / instrument enhancement:** explicit, opt-in experimental workflows.
+- **Milestone 11 — Audio export and packaged separation reliability (complete):** staged conversion and dependable canonical packaged output.
+- **Milestone 12 — Stem Review Workspace (complete):** synchronized audition, seeking, solo/mute, display labels, advisory activity detection, grouping, and grouped export.
+- **Milestone 13 — Installer / distribution polish.**
+- **Milestone 14 — Section refinement:** region selection, alternate separation candidates, assignment, crossfades, and undo.
+- **Milestone 15 — Advanced reconstruction:** explicit, opt-in experimental instrument enhancement.
 
 ## Requirements
 
@@ -578,6 +580,54 @@ FFprobe reported preserved durations, 48 kHz, and two channels. Five-minute expo
 took approximately 0.18 seconds (WAV), 0.39 seconds (FLAC), 2.85–3.19 seconds (MP3),
 and 3.72 seconds (AAC) on the development machine. These are encoding timings only,
 not separation or modernization timings; other hardware and audio will differ.
+
+## Milestone 12 — Stem Review Workspace
+
+After separation, choose **Review Stems** in Results. To reopen a project without
+running separation, choose the original recording and use **Review Existing Stems**.
+The workspace discovers every canonical WAV dynamically; it does not assume a model
+or fixed number of stems.
+
+Playback uses one shared `QAudioSink` transport that pulls aligned 48 kHz stereo
+floating-point PCM from the canonical stem files. Changing selected, soloed, or muted
+membership updates the next streamed audio blocks without replacing a media source or
+resetting the playhead. With no selection, all unmuted stems play. A selection limits
+the mix to those stems; any Solo temporarily overrides that selection, while Mute
+always excludes its stem. Selection is deliberately session-only, so reopening starts
+with the unsurprising full separated mix.
+
+On Windows, stem decoding and mixing run ahead on a bounded producer thread so the
+real-time Qt callback only copies prepared bytes. The sink uses the default device's
+supported 48 kHz stereo format (Float32 when available, otherwise Int16), a 250 ms
+buffer, matching startup/seek prefill, and a 5 ms membership-change ramp. This trades
+a small controlled response delay for protection against Python scheduling and disk
+decode stalls without changing canonical audio.
+
+Opening the workspace does not enumerate or initialize a physical audio device. The
+real Qt output sink is created lazily on the first Play request; if no usable device is
+available, playback reports that condition while waveform review, organization, and
+export remain usable. Offscreen/minimal Qt platforms use a logical null sink so GUI
+and transport-state tests never require ALSA, PulseAudio, PipeWire, or speakers.
+
+The combined and per-stem waveform views use cached, bounded peak envelopes rather
+than painting full-resolution samples. They share one playhead and time scale, and
+clicking or dragging anywhere on a waveform seeks the global transport. The custom
+waveform surface is intentionally ready for a later range-selection overlay without
+implementing section refinement in this milestone.
+
+Display labels, solo/mute state, activity measurements, seek position, and logical
+groups are stored atomically under `output/<project>/workspace/`. Canonical separated
+and restored WAVs are never renamed, deleted, overwritten, or destructively merged.
+Group mixes use unity stem gains and attenuation only when the sum would exceed the
+-0.5 dBFS safety ceiling. Existing export conversion handles WAV 24-bit, FLAC, MP3,
+and M4A/AAC; display and group labels are sanitized only when creating filenames.
+
+“Likely inactive” is a conservative advisory requiring both very low RMS and very
+little active audio. It never hides or deletes a stem. Separation quality remains
+model-dependent: renaming and grouping organize results but do not improve separation,
+and manual listening remains important. Region selection, partial re-separation,
+candidate comparison, assignment, boundary crossfades, and region undo are intentionally
+deferred to Milestone 14.
 
 ## Reconstruction disclaimer
 
