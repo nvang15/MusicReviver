@@ -96,16 +96,23 @@ def probe_media(path: Path, *, ffprobe: str | None = None) -> MediaMetadata:
     ffprobe = ffprobe or resolve_executable("ffprobe")
     command = [ffprobe, "-v", "error", "-show_format", "-show_streams", "-of", "json", str(path)]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        result = subprocess.run(command, shell=False, capture_output=True, text=False, check=False)
     except OSError as exc:
         raise MediaProbeError(f"Unable to run ffprobe: {exc}") from exc
+    raw_error = result.stderr if isinstance(result.stderr, bytes) else str(result.stderr).encode("utf-8")
     if result.returncode != 0:
-        detail = result.stderr.strip() or "unknown ffprobe error"
+        detail = raw_error.decode("utf-8-sig", errors="replace").strip() or "unknown ffprobe error"
         raise MediaProbeError(f"Could not inspect '{path.name}': {detail}")
     try:
-        payload = json.loads(result.stdout)
+        raw_output = result.stdout if isinstance(result.stdout, bytes) else str(result.stdout).encode("utf-8")
+        decoded = raw_output.decode("utf-8-sig")
+        payload = json.loads(decoded)
+    except UnicodeDecodeError as exc:
+        raise MediaProbeError(f"ffprobe returned non-UTF-8 output for '{path.name}' at byte {exc.start}.") from exc
     except (json.JSONDecodeError, TypeError) as exc:
-        raise MediaProbeError(f"ffprobe returned invalid JSON for '{path.name}'.") from exc
+        detail = raw_error.decode("utf-8-sig", errors="replace").strip()
+        suffix = f" ffprobe stderr: {detail}" if detail else ""
+        raise MediaProbeError(f"ffprobe returned invalid JSON for '{path.name}'.{suffix}") from exc
 
     streams = payload.get("streams", [])
     if not isinstance(streams, list):

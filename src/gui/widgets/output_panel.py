@@ -10,6 +10,7 @@ from src.gui.models import GuiResult
 class OutputPanel(QGroupBox):
     open_folder_requested = Signal()
     export_requested = Signal()
+    review_requested = Signal()
 
     def __init__(self) -> None:
         super().__init__("Results")
@@ -21,9 +22,12 @@ class OutputPanel(QGroupBox):
         self.export_button = QPushButton("Export Result…")
         self.open_button.setEnabled(False)
         self.export_button.setEnabled(False)
+        self.review_button = QPushButton("Review Stems...")
+        self.review_button.setEnabled(False)
         buttons = QHBoxLayout()
         buttons.addWidget(self.open_button)
         buttons.addWidget(self.export_button)
+        buttons.addWidget(self.review_button)
         buttons.addStretch()
         layout = QVBoxLayout(self)
         layout.addWidget(self.status_label)
@@ -32,6 +36,7 @@ class OutputPanel(QGroupBox):
         layout.addLayout(buttons)
         self.open_button.clicked.connect(self.open_folder_requested)
         self.export_button.clicked.connect(self.export_requested)
+        self.review_button.clicked.connect(self.review_requested)
 
     def set_result(self, result: GuiResult) -> None:
         self.status_label.setText(f"{result.summary} Project: {result.project_name}. Elapsed: {result.elapsed_seconds:.2f}s")
@@ -41,4 +46,7 @@ class OutputPanel(QGroupBox):
             self.files_list.addItem(str(path))
         self.open_button.setEnabled(result.output_folder is not None)
         self.export_button.setEnabled(bool(result.files))
+        self.review_button.setEnabled(any(
+            path.suffix.lower() == ".wav" and path.parent.name in ("stems", "restored")
+            for path in result.files))
 

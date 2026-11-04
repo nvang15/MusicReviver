@@ -66,8 +66,14 @@ def is_ffprobe_available() -> bool:
 def safe_project_name(path: Path) -> str:
     """Create a filesystem-safe, readable project name from a media filename."""
     stem = unicodedata.normalize("NFKC", Path(path).stem).strip().lower()
-    stem = re.sub(r"[^\w-]+", "_", stem, flags=re.UNICODE)
-    stem = re.sub(r"_+", "_", stem).strip("._-")
+    # Preserve the established ASCII naming convention while retaining readable
+    # non-ASCII letters/symbols (including emoji) instead of transliterating them.
+    stem = "".join(char if (char.isalnum() or char in "_-" or
+                            (ord(char) > 127 and not unicodedata.category(char).startswith("C")))
+                   else "_" for char in stem)
+    stem = re.sub(r"_+", "_", stem).strip("._-")[:120].rstrip(" .")
+    if stem.upper() in {"CON","PRN","AUX","NUL",*(f"COM{i}" for i in range(1,10)),*(f"LPT{i}" for i in range(1,10))}:
+        stem = "_" + stem
     return stem or "media"
 
 
@@ -81,7 +87,7 @@ def _relative_or_filename(path: Path, project_root: Path) -> str:
 def get_ffmpeg_version(*, ffmpeg: str | None = None) -> str | None:
     """Return the first FFmpeg version line when available."""
     try:
-        result = subprocess.run([ffmpeg or resolve_executable("ffmpeg"), "-version"], capture_output=True, text=True, check=False)
+        result = subprocess.run([ffmpeg or resolve_executable("ffmpeg"), "-version"], shell=False, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
     except OSError:
         return None
     lines = result.stdout.splitlines()
@@ -121,7 +127,7 @@ def convert_media(
         "-y", str(temporary_path),
     ]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        result = subprocess.run(command, shell=False, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
     except OSError as exc:
         raise MediaConversionError(f"Unable to run FFmpeg: {exc}") from exc
     if result.returncode != 0:

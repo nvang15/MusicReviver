@@ -65,6 +65,14 @@ def test_ffprobe_detection_when_missing(monkeypatch) -> None:
         ("My OLD Song!.mp3", "my_old_song"),
         ("  déjà vu (Live)  .MP4", "déjà_vu_live"),
         ("...wav", "media"),
+        ("夜に駆ける.wav", "夜に駆ける"),
+        ("月亮代表我的心.wav", "月亮代表我的心"),
+        ("사랑.wav", "사랑"),
+        ("canción été.wav", "canción_été"),
+        ("größer.wav", "größer"),
+        ("song 🎵 test.wav", "song_🎵_test"),
+        ("宇多田ヒカル - First Love (2026) 🎹.wav", "宇多田ヒカル_-_first_love_2026_🎹"),
+        ("CON.wav", "_con"),
     ],
 )
 def test_safe_project_directory_naming(filename: str, expected: str) -> None:
@@ -115,3 +123,18 @@ def test_existing_output_and_force_overwrite(generated_media: dict[str, Path], t
     second = converter.convert_media(generated_media["mp3"], output_root=output_root, force=True)
     assert second.audio_path.read_bytes() != b"sentinel"
     assert metadata.probe_media(second.audio_path).audio_codec == "pcm_s24le"
+
+
+@pytest.mark.parametrize("relative", ["夜に駆ける.wav", "月亮代表我的心.wav", "사랑.wav", "canción été.wav", "größer.wav", "song 🎵 test.wav", "宇多田ヒカル - First Love (2026) 🎹.wav", "入力音楽/夜に駆ける.wav"])
+def test_real_ffmpeg_ffprobe_import_supports_unicode_paths(tmp_path, relative):
+    if not TOOLS_AVAILABLE:
+        pytest.skip("FFmpeg and ffprobe are required")
+    source = tmp_path / relative; source.parent.mkdir(parents=True, exist_ok=True)
+    run_ffmpeg("-f", "lavfi", "-i", "sine=frequency=440:duration=0.05", str(source))
+    probed = metadata.probe_media(source)
+    result = converter.convert_media(source, output_root=tmp_path / "output", project_root=tmp_path)
+    raw = result.metadata_path.read_text(encoding="utf-8"); document = json.loads(raw)
+    assert probed.filename == source.name and result.project_name == converter.safe_project_name(source)
+    assert result.audio_path.is_file() and document["original"]["filename"] == source.name
+    assert {char for char in source.stem if ord(char) > 127}.issubset(set(result.project_name))
+    assert "\\u" not in raw

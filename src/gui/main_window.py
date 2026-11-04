@@ -21,6 +21,7 @@ from src.gui.worker import ProcessingWorker
 from src.gui.export_dialog import ExportDialog
 from src.gui.export_worker import ExportWorker
 from src.gui.model_readiness import model_readiness
+from src.gui.stem_review import StemReviewWindow
 from src.mastering.models import MasteringMode
 from src.restoration.models import RestorationStrength
 from src.separation.backends import DeviceMode
@@ -42,6 +43,7 @@ class MainWindow(QMainWindow):
         self.thread: QThread | None = None
         self.worker: ProcessingWorker | None = None
         self.current_result: GuiResult | None = None
+        self.review_window = None
         self.settings = QSettings("MusicReviver", "MusicReviver")
         self.setWindowTitle("MusicReviver")
         self.resize(900, 680)
@@ -80,9 +82,11 @@ class MainWindow(QMainWindow):
         controls = QHBoxLayout()
         controls.addStretch()
         self.start_button, self.cancel_button = QPushButton("Start Processing"), QPushButton("Cancel")
+        self.review_existing_button = QPushButton("Review Existing Stems...")
         self.start_button.setDefault(True)
         self.cancel_button.setEnabled(False)
         controls.addWidget(self.start_button)
+        controls.addWidget(self.review_existing_button)
         controls.addWidget(self.cancel_button)
         layout.addLayout(controls)
         self.cancel_note = QLabel("Cancellation will occur after the current processing stage completes.")
@@ -93,8 +97,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.output_panel, 1)
         self.start_button.clicked.connect(self.start_processing)
         self.cancel_button.clicked.connect(self.cancel_processing)
+        self.review_existing_button.clicked.connect(self.open_existing_stem_review)
         self.output_panel.open_folder_requested.connect(self.open_output_folder)
         self.output_panel.export_requested.connect(self.export_result)
+        self.output_panel.review_requested.connect(self.open_stem_review)
 
     @property
     def selected_task(self) -> GuiTask:
@@ -161,14 +167,19 @@ class MainWindow(QMainWindow):
             button.setEnabled(not active)
         self.options_panel.setEnabled(not active)
         self.start_button.setEnabled(not active)
+        self.review_existing_button.setEnabled(not active)
         self.cancel_button.setEnabled(active)
         self.cancel_note.setVisible(active)
         self.output_panel.export_button.setEnabled(not active and bool(self.current_result and self.current_result.files))
+        self.output_panel.review_button.setEnabled(not active and bool(
+            self.current_result and any(path.suffix.lower() == ".wav" and path.parent.name in ("stems", "restored")
+                                        for path in self.current_result.files)))
 
     def _job_completed(self, result: GuiResult) -> None:
         self.current_result = result
         self.output_panel.set_result(result)
         self.output_panel.export_button.setEnabled(False)
+        self.output_panel.review_button.setEnabled(False)
         self.progress_panel.finish(result.summary, True)
 
     def _job_failed(self, summary: str, details: str) -> None:
@@ -225,6 +236,33 @@ class MainWindow(QMainWindow):
         self.progress_panel.bar.setRange(0, 0)
         self.progress_panel.message_label.setText(f"{event.completed}/{event.total} files prepared. {event.message}")
         self.progress_panel.details.appendPlainText(event.message)
+
+    def open_stem_review(self) -> None:
+        """Open existing results without invoking separation."""
+        if self.thread is not None or not self.current_result:
+            return
+        stems = [path for path in self.current_result.files
+                 if path.suffix.lower() == ".wav" and path.parent.name in ("stems", "restored")]
+        if not stems:
+            self._friendly_error("No separated stems are available for review.")
+            return
+        self.review_window = StemReviewWindow(stems[0].parent.parent, self)
+        self.review_window.show()
+
+    def open_existing_stem_review(self) -> None:
+        """Open a known project without processing or separation."""
+        input_path = self.file_picker.path
+        if not input_path:
+            self._friendly_error("Choose the recording whose existing stems you want to review.")
+            return
+        from src.audio.converter import safe_project_name
+        from src.config import OUTPUT_DIR
+        project = OUTPUT_DIR / safe_project_name(input_path)
+        if not any((project / "stems").glob("*.wav")):
+            self._friendly_error("No separated stems are available for this project.")
+            return
+        self.review_window = StemReviewWindow(project, self)
+        self.review_window.show()
 
     def _export_completed(self, result):
         self.progress_panel.finish(f"Exported {len(result.files)} file(s) in {result.elapsed_seconds:.1f}s.", True)
