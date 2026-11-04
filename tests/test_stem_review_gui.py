@@ -12,7 +12,8 @@ from PySide6.QtWidgets import QWidget
 from src.gui import stem_review
 from src.gui.main_window import MainWindow
 from src.gui.stem_review import ReviewWorker, StemReviewWindow, safe_export_label
-from src.gui.audio_transport import StemMixDevice, StemMixTransport
+from src.gui.audio_transport import NullAudioSink, StemMixDevice, StemMixTransport
+from PySide6.QtMultimedia import QAudioFormat
 from src.gui.waveform import WaveformWidget, extract_waveform
 
 @pytest.fixture(scope="module")
@@ -42,6 +43,75 @@ def test_dynamic_rows_construct_headlessly(application, tmp_path):
     pump(application, lambda: window._worker_thread is None)
     assert len(window.rows) == 3 and "custom_name" in [Path(s.source).stem for s in window.workspace.stems]
     assert window._worker_thread is None and window._worker is None
+    window.close()
+
+def test_offscreen_window_never_enumerates_native_audio(application, tmp_path, monkeypatch):
+    def forbidden():
+        raise AssertionError("native audio device enumeration must not occur offscreen")
+    monkeypatch.setattr("src.gui.audio_transport.QMediaDevices.defaultAudioOutput", forbidden)
+    window = StemReviewWindow(make_project(tmp_path))
+    pump(application, lambda: window._worker_thread is None)
+    assert isinstance(window.transport.sink, NullAudioSink)
+    window.transport.play_pause(); assert window.transport.is_playing
+    window.transport.play_pause(); assert not window.transport.is_playing
+    window.transport.seek_ms(20); assert abs(window.transport.position_ms - 20) <= 1
+    window.transport.stop(); assert window.transport.position_ms == 0
+    window.close()
+
+class FakeOutputDevice:
+    def __init__(self, *, null=False, float_supported=True, int16_supported=True):
+        self.null = null; self.float_supported = float_supported; self.int16_supported = int16_supported
+    def isNull(self): return self.null
+    def isFormatSupported(self, fmt):
+        if fmt.sampleFormat() == QAudioFormat.SampleFormat.Float: return self.float_supported
+        if fmt.sampleFormat() == QAudioFormat.SampleFormat.Int16: return self.int16_supported
+        return False
+
+class FakePhysicalSink(QObject):
+    def __init__(self, output, fmt, parent=None):
+        super().__init__(parent); self.output = output; self.fmt = fmt; self.buffer_size = 0; self.usecs = 0
+    def setBufferSize(self, value): self.buffer_size = value
+    def bufferSize(self): return self.buffer_size
+    def start(self, device): self.started = True
+    def suspend(self): pass
+    def resume(self): pass
+    def stop(self): self.usecs = 0
+    def processedUSecs(self): return self.usecs
+
+def test_physical_backend_is_lazy_and_float_int16_selection_is_testable(application, tmp_path):
+    paths = {p.stem:p for p in (make_project(tmp_path)/"stems").glob("*.wav")}; calls=[]
+    def factory(output, fmt, parent): calls.append(fmt.sampleFormat()); return FakePhysicalSink(output, fmt, parent)
+    transport = StemMixTransport(paths, sink_factory=factory, output_device_provider=lambda: FakeOutputDevice(), defer_output=True)
+    assert transport.sink is None and not calls
+    transport.play_pause()
+    assert calls == [QAudioFormat.SampleFormat.Float] and transport.is_playing
+    transport.close()
+    transport = StemMixTransport(paths, sink_factory=factory,
+        output_device_provider=lambda: FakeOutputDevice(float_supported=False), defer_output=True)
+    transport.play_pause()
+    assert calls[-1] == QAudioFormat.SampleFormat.Int16
+    assert transport.device._sample_format == QAudioFormat.SampleFormat.Int16
+    transport.close()
+
+def test_no_audio_device_reports_error_without_disabling_workspace(application, tmp_path):
+    paths = {p.stem:p for p in (make_project(tmp_path)/"stems").glob("*.wav")}
+    transport = StemMixTransport(paths, output_device_provider=lambda: FakeOutputDevice(null=True))
+    errors=[]; transport.audioError.connect(errors.append); transport.play_pause()
+    assert errors == ["No audio output device is available."]
+    assert transport.sink is None and not transport.is_playing
+    transport.seek_ms(20); assert abs(transport.position_ms - 20) <= 1
+    transport.close()
+
+def test_no_audio_device_keeps_review_window_usable(application, tmp_path):
+    def factory(paths, parent):
+        return StemMixTransport(paths, parent, output_device_provider=lambda: FakeOutputDevice(null=True))
+    window = StemReviewWindow(make_project(tmp_path), transport_factory=factory)
+    pump(application, lambda: window._worker_thread is None)
+    window.play_button.click()
+    assert window.status.text() == "No audio output device is available."
+    assert window.play_button.isEnabled() and not window.transport.is_playing
+    first = next(iter(window.rows.values())); first.name_button.click()
+    assert window.selected_ids == {first.stem_id}
     window.close()
 
 def test_dialog_media_and_dynamic_widgets_have_gui_affinity(application, tmp_path):

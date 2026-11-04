@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 from PySide6.QtCore import QIODevice, QObject, QTimer, Signal, Slot
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtMultimedia import QAudio, QAudioFormat, QAudioSink, QMediaDevices
 
 
@@ -163,6 +164,45 @@ class StemMixDevice(QIODevice):
         self.close()
 
 
+class NullAudioSink(QObject):
+    """Logical sink for headless review; it never initializes native audio."""
+
+    def __init__(self, fmt: QAudioFormat, parent: QObject | None = None):
+        super().__init__(parent)
+        self._buffer_size = round(fmt.bytesForDuration(250_000))
+        self._elapsed_us = 0
+        self._started_at: float | None = None
+
+    def setBufferSize(self, value: int) -> None: self._buffer_size = int(value)
+    def bufferSize(self) -> int: return self._buffer_size
+    def start(self, device: QIODevice) -> None:
+        if self._started_at is None: self._started_at = time.monotonic()
+    def suspend(self) -> None:
+        if self._started_at is not None:
+            self._elapsed_us += round((time.monotonic() - self._started_at) * 1_000_000)
+            self._started_at = None
+    def resume(self) -> None:
+        if self._started_at is None: self._started_at = time.monotonic()
+    def stop(self) -> None:
+        self._elapsed_us = 0
+        self._started_at = None
+    def processedUSecs(self) -> int:
+        running = 0 if self._started_at is None else round((time.monotonic() - self._started_at) * 1_000_000)
+        return self._elapsed_us + running
+
+
+def headless_audio_requested() -> bool:
+    """Return true for Qt platforms intentionally running without native output."""
+    app = QGuiApplication.instance()
+    return bool(app and app.platformName().lower() in {"offscreen", "minimal"})
+
+
+def create_stem_transport(paths: dict[str, Path], parent=None):
+    """Create a review transport without probing native audio in headless Qt."""
+    sink_factory = NullAudioSink if headless_audio_requested() else QAudioSink
+    return StemMixTransport(paths, parent, sink_factory=sink_factory)
+
+
 class StemMixTransport(QObject):
     """GUI-thread audio transport with a stable playhead and one QAudioSink."""
     positionChanged = Signal(int)
@@ -170,22 +210,23 @@ class StemMixTransport(QObject):
     playingChanged = Signal(bool)
     audioError = Signal(str)
 
-    def __init__(self, paths: dict[str, Path], parent=None, sink_factory=QAudioSink):
+    def __init__(self, paths: dict[str, Path], parent=None, sink_factory=QAudioSink,
+                 *, output_device_provider=None, defer_output: bool | None = None):
         super().__init__(parent)
-        self.output_device = QMediaDevices.defaultAudioOutput()
+        self._paths = dict(paths)
+        self._sink_factory = sink_factory
+        self._output_device_provider = output_device_provider
+        self._defer_output = sink_factory is QAudioSink if defer_output is None else defer_output
+        self.output_device = None
         fmt = QAudioFormat(); fmt.setSampleRate(48000); fmt.setChannelCount(2); fmt.setSampleFormat(QAudioFormat.SampleFormat.Float)
-        if not self.output_device.isFormatSupported(fmt):
-            fmt.setSampleFormat(QAudioFormat.SampleFormat.Int16)
-            if not self.output_device.isFormatSupported(fmt):
-                raise RuntimeError("The default audio device does not support 48 kHz stereo Float32 or Int16 playback.")
         self.device = StemMixDevice(paths, self, buffered=True, sample_format=fmt.sampleFormat())
-        self.sink = sink_factory(self.output_device, fmt, self) if sink_factory is QAudioSink else sink_factory(fmt, self)
+        # A real Qt sink is deliberately deferred until Play. Merely opening a
+        # project must never enumerate ALSA/PulseAudio/PipeWire devices.
+        self.sink = None if self._defer_output else sink_factory(fmt, self)
+        self.format = fmt
         self.buffer_duration_ms = 250
-        self.sink.setBufferSize(round(fmt.bytesForDuration(self.buffer_duration_ms*1000)))
-        self.device.configure_prefetch(self.sink.bufferSize())
+        if self.sink is not None: self._configure_sink()
         self.last_error = QAudio.Error.NoError
-        if hasattr(self.sink, "stateChanged"):
-            self.sink.stateChanged.connect(self._sink_state_changed)
         self._playing = False; self._paused = False; self._anchor_frame = 0
         self.timer = QTimer(self); self.timer.setInterval(40); self.timer.timeout.connect(self._tick)
         self.durationChanged.emit(self.duration_ms)
@@ -194,7 +235,7 @@ class StemMixTransport(QObject):
     def duration_ms(self): return round(self.device.total_frames * 1000 / self.device.sample_rate)
     @property
     def position_ms(self):
-        if self._playing or self._paused:
+        if (self._playing or self._paused) and self.sink is not None:
             return min(self.duration_ms, round(self._anchor_frame * 1000 / self.device.sample_rate + self.sink.processedUSecs() / 1000))
         return round(self._anchor_frame * 1000 / self.device.sample_rate)
     @property
@@ -202,20 +243,53 @@ class StemMixTransport(QObject):
 
     def set_audible(self, ids): self.device.set_audible(tuple(ids))
     def set_peaks(self, peaks): self.device.set_peaks(peaks)
+    def _configure_sink(self):
+        self.sink.setBufferSize(round(self.format.bytesForDuration(self.buffer_duration_ms*1000)))
+        self.device.configure_prefetch(self.sink.bufferSize())
+        if hasattr(self.sink, "stateChanged"): self.sink.stateChanged.connect(self._sink_state_changed)
+    def _ensure_sink(self) -> bool:
+        if self.sink is not None: return True
+        try:
+            provider = self._output_device_provider or QMediaDevices.defaultAudioOutput
+            output_device = provider()
+            if output_device.isNull():
+                raise RuntimeError("No audio output device is available.")
+            fmt = QAudioFormat(); fmt.setSampleRate(48000); fmt.setChannelCount(2); fmt.setSampleFormat(QAudioFormat.SampleFormat.Float)
+            if not output_device.isFormatSupported(fmt):
+                fmt.setSampleFormat(QAudioFormat.SampleFormat.Int16)
+                if not output_device.isFormatSupported(fmt):
+                    raise RuntimeError("No audio output device supports 48 kHz stereo playback.")
+            if fmt.sampleFormat() != self.format.sampleFormat():
+                position = self.position_ms; audible = self.device._audible; peaks = dict(self.device._peaks)
+                self.device.close_sources()
+                self.device = StemMixDevice(self._paths, self, buffered=True, sample_format=fmt.sampleFormat())
+                self.device.set_peaks(peaks); self.device.set_audible(audible)
+                self.device.seek_frame(round(position * self.device.sample_rate / 1000))
+            self.output_device = output_device; self.format = fmt
+            self.sink = self._sink_factory(output_device, fmt, self)
+            self._configure_sink()
+            return True
+        except Exception as exc:
+            message = str(exc) or "No audio output device is available."
+            self.audioError.emit(message)
+            return False
     def play_pause(self):
         if self._playing:
             self.sink.suspend(); self._playing = False; self._paused = True; self.timer.stop(); self.playingChanged.emit(False); self.positionChanged.emit(self.position_ms); return
+        if not self._ensure_sink(): return
         if self._paused:
             self.sink.resume()
         else:
             self.device.wait_until_prefetched(); self.sink.start(self.device)
         self._playing = True; self._paused = False; self.timer.start(); self.playingChanged.emit(True)
     def stop(self):
-        self.sink.stop(); self._playing = self._paused = False; self.timer.stop(); self.device.seek_frame(0); self._anchor_frame = 0
+        if self.sink is not None: self.sink.stop()
+        self._playing = self._paused = False; self.timer.stop(); self.device.seek_frame(0); self._anchor_frame = 0
         self.playingChanged.emit(False); self.positionChanged.emit(0)
     def seek_ms(self, value):
         was_playing = self._playing
-        self.sink.stop(); self.timer.stop(); self._playing = self._paused = False
+        if self.sink is not None: self.sink.stop()
+        self.timer.stop(); self._playing = self._paused = False
         frame = round(max(0, min(self.duration_ms, int(value))) * self.device.sample_rate / 1000)
         self.device.seek_frame(frame); self._anchor_frame = frame
         if was_playing:
@@ -232,4 +306,6 @@ class StemMixTransport(QObject):
         self.last_error = error
         if error.value != QAudio.Error.NoError.value:
             self.audioError.emit(error.name)
-    def close(self): self.sink.stop(); self.timer.stop(); self.device.close_sources()
+    def close(self):
+        if self.sink is not None: self.sink.stop()
+        self.timer.stop(); self.device.close_sources()

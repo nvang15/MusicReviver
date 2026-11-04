@@ -603,6 +603,12 @@ buffer, matching startup/seek prefill, and a 5 ms membership-change ramp. This t
 a small controlled response delay for protection against Python scheduling and disk
 decode stalls without changing canonical audio.
 
+Opening the workspace does not enumerate or initialize a physical audio device. The
+real Qt output sink is created lazily on the first Play request; if no usable device is
+available, playback reports that condition while waveform review, organization, and
+export remain usable. Offscreen/minimal Qt platforms use a logical null sink so GUI
+and transport-state tests never require ALSA, PulseAudio, PipeWire, or speakers.
+
 The combined and per-stem waveform views use cached, bounded peak envelopes rather
 than painting full-resolution samples. They share one playhead and time scale, and
 clicking or dragging anywhere on a waveform seeks the global transport. The custom

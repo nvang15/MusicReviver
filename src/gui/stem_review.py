@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QFileDialog, QHBoxLayout, QIn
 from src.config import TEMP_DIR
 from src.exporting import AudioFormat, ExportConfig, export_files
 from src.workspace import load_workspace, save_workspace, measure_activity, render_mix
-from src.gui.audio_transport import StemMixTransport
+from src.gui.audio_transport import create_stem_transport
 from src.gui.waveform import WaveformWidget, combine_envelopes, extract_waveform
 
 def safe_export_label(label):
@@ -55,7 +55,7 @@ class StemRow(QWidget):
     def set_position(self, value): self.waveform.set_position(value)
 
 class StemReviewWindow(QDialog):
-    def __init__(self, project: Path, parent=None, transport_factory=StemMixTransport):
+    def __init__(self, project: Path, parent=None, transport_factory=create_stem_transport):
         super().__init__(parent); self.project = Path(project).resolve(); self._worker_thread = self._worker = None; self._completion_callback = None; self._close_when_finished = False
         self.selected_ids, self.envelopes, self.rows = set(), {}, {}; self.workspace = load_workspace(self.project); self.transport_factory = transport_factory
         self.setWindowTitle("Stem Review — " + self.project.name); self.resize(1100,760); self.transport = self._create_transport(); self._build(); self._render_rows(); self._load_waveforms(); self.transport.seek_ms(self.workspace.position_ms); self._update_audible()
@@ -77,7 +77,7 @@ class StemReviewWindow(QDialog):
         for text,callback in (("Audition Group",self.audition_group),("Rename Group",self.rename_group),("Ungroup",self.ungroup),("Export Group",self.export_group)):
             button=QPushButton(text); button.clicked.connect(callback); ga.addWidget(button)
         ga.addStretch(); layout.addLayout(ga); self.status=QLabel(""); layout.addWidget(self.status)
-        self.play_button.clicked.connect(self.transport.play_pause); self.stop_button.clicked.connect(self.transport.stop); self.back_button.clicked.connect(lambda:self.jump(-5000)); self.forward_button.clicked.connect(lambda:self.jump(5000)); self.combined_waveform.seekRequested.connect(self.seek); self.transport.positionChanged.connect(self._position); self.transport.playingChanged.connect(self._playing_changed); self.source.currentIndexChanged.connect(self.switch_source)
+        self.play_button.clicked.connect(self.transport.play_pause); self.stop_button.clicked.connect(self.transport.stop); self.back_button.clicked.connect(lambda:self.jump(-5000)); self.forward_button.clicked.connect(lambda:self.jump(5000)); self.combined_waveform.seekRequested.connect(self.seek); self.transport.positionChanged.connect(self._position); self.transport.playingChanged.connect(self._playing_changed); self.transport.audioError.connect(self._playback_error); self.source.currentIndexChanged.connect(self.switch_source)
     def _render_rows(self):
         while self.rows_layout.count():
             widget=self.rows_layout.takeAt(0).widget()
@@ -126,8 +126,11 @@ class StemReviewWindow(QDialog):
         self.time.setText(f"{format_time(value)} / {format_time(self.transport.duration_ms)}"); self.combined_waveform.set_position(value)
         for row in self.rows.values(): row.set_position(value)
     def _playing_changed(self,playing): self.play_button.setText("⏸ Pause" if playing else "▶ Play")
+    def _playback_error(self, message):
+        self.status.setText(message)
+        self.play_button.setText("▶ Play")
     def switch_source(self):
-        position=self.transport.position_ms; self.play_button.setEnabled(False); self.play_button.clicked.disconnect(); self.stop_button.clicked.disconnect(); self.transport.close(); self.workspace=load_workspace(self.project,self.source.currentData()); self.selected_ids.clear(); self.envelopes.clear(); self.transport=self._create_transport(); self.transport.positionChanged.connect(self._position); self.transport.playingChanged.connect(self._playing_changed); self.play_button.clicked.connect(self.transport.play_pause); self.stop_button.clicked.connect(self.transport.stop); self.transport.seek_ms(position); self._render_rows(); self._load_waveforms(); self._update_audible()
+        position=self.transport.position_ms; self.play_button.setEnabled(False); self.play_button.clicked.disconnect(); self.stop_button.clicked.disconnect(); self.transport.close(); self.workspace=load_workspace(self.project,self.source.currentData()); self.selected_ids.clear(); self.envelopes.clear(); self.transport=self._create_transport(); self.transport.positionChanged.connect(self._position); self.transport.playingChanged.connect(self._playing_changed); self.transport.audioError.connect(self._playback_error); self.play_button.clicked.connect(self.transport.play_pause); self.stop_button.clicked.connect(self.transport.stop); self.transport.seek_ms(position); self._render_rows(); self._load_waveforms(); self._update_audible()
     def create_group(self):
         members=list(self.selected_ids)
         if len(members)<2:return self._error("Select at least two stems to create a group.")
